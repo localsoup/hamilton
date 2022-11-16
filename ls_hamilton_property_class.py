@@ -1,46 +1,15 @@
 from bs4 import BeautifulSoup
 import re
 import arrow
+from logger import httpLogger
+from logger import logger
+from http_client import http_client
 import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-import http
 
+PRINT_STATEMENTS = 1
 
-DEFAULT_TIMEOUT = 5 # seconds
-HTTP_DEBUG_LEVEL = 0
-PRINT_STATEMENTS = 0
-# Retry strategy
-retries = Retry(total=1, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-
-# Create a custom requests object
-http_client = requests.Session()
-# Set the debug level
-http.client.HTTPConnection.debuglevel = HTTP_DEBUG_LEVEL
-# Call back if the server responds with an HTTP error code
-assert_status_hook = lambda response, *args, **kwargs: response.raise_for_status()
-http_client.hooks["response"] = [assert_status_hook]
-# Extend the HTTP adapter so that it provides a default timeout that you can override when constructing the client
-class TimeoutHTTPAdapter(HTTPAdapter):
-    def __init__(self, *args, **kwargs):
-        self.timeout = DEFAULT_TIMEOUT
-        if "timeout" in kwargs:
-            self.timeout = kwargs["timeout"]
-            del kwargs["timeout"]
-        super().__init__(*args, **kwargs)
-    def send(self, request, **kwargs):
-        timeout = kwargs.get("timeout")
-        if timeout is None:
-            kwargs["timeout"] = self.timeout
-        return super().send(request, **kwargs)
-# Mount the extended timeout adaptor with the retry strategy for all requests
-http_client.mount("https://", TimeoutHTTPAdapter(max_retries=retries))
-http_client.mount("http://", TimeoutHTTPAdapter(max_retries=retries))
-
-
-class ham_prop:
+# Factory class for generating Hamilton property objects 
+class ls_hamilton_property:
     def __init__(self, address={}, roll_number=""):
         if address:
             self.address = address
@@ -48,30 +17,45 @@ class ham_prop:
             self.roll_number = self.get_roll_number(self.address)
         if roll_number:
             self.roll_number = roll_number
-            self.roll_number = self.validate_roll_number(self.roll_number)
             self.address = self.get_address(self.roll_number)
-            self.address = self.validate_address(self.address)
+            if self.address:
+                self.address = self.validate_address(self.address)
         if self.address:
             self.location = self.get_location(self.address)
-            self.building_permit = self.get_building_permit_apps(self.address)
-        if self.roll_number:
-            self.tax_assessment_years = self.get_tax_assessment_years(self.roll_number)
-            self.tax_levy_years = self.get_tax_levy_years(self.roll_number)
-            self.tax_breakdown_years = self.get_tax_breakdown_years(self.roll_number)
-            self.tax_installment_years = self.get_tax_installment_years(self.roll_number)
+        else:
+            self.location = {}
+        if self.location:
+            self.ward = self.get_ward(self.location)
+        else:
+            self.ward = {}
         if self.location:
             self.zoning = self.get_zoning_data(self.location)
+        else:
+            self.zoning = {}
+        if self.location:
             self.temp_use = self.get_temp_use_data(self.location)
-            self.ward = self.get_ward(self.location)
+        else:
+            self.temp_use = {}
+        if self.location:
+            self.building_permits = self.get_building_permits(self.address)
+        else: self.building_permits = {}
+        # if self.roll_number:
+        #     self.tax_assessment_years = self.get_tax_assessment_years(self.roll_number)
+        #     self.tax_levy_years = self.get_tax_levy_years(self.roll_number)
+        #     self.tax_breakdown_years = self.get_tax_breakdown_years(self.roll_number)
+        #     self.tax_installment_years = self.get_tax_installment_years(self.roll_number)
 
 
-    def validate_address(self, address):
-    # Accepts a Hamilton address object, validates the address, and appends any additionally available attributes.
+    # Accepts an address object, validates the address, and appends any additionally available attributes.
     # Required input attributes are:
     #   'street_number'
     #   'street_name'
     #   'street_type_short' or 'street_type_long'
     #   'street_direction_short' or 'street_direction_long' if applicable
+    #   city (Hamilton, Ancaster, Dundas, Flamborough, Glanbrook, or Stoney Creek)
+    def validate_address(self, address):
+
+        # Flesh out the short and long versions of street types and directions
         if self.address.get('street_type_short') is not None:
             if address.get('street_type_long') is None:
                 address['street_type_long'] = self.expand_address_type(address['street_type_short'])
@@ -84,27 +68,52 @@ class ham_prop:
         if address.get('street_direction_long') is not None:
             if address.get('street_direction_short') is None:
                 address['street_direction_short'] = self.contract_address_direction(address['street_direction_long'])
+
+        # The URL for the City of Hamilton's ArcGIS-powered address search, hosted by Spatial Solutions Inc
         url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/Geocoders/Address_Locator/GeocodeServer/findAddressCandidates"
+        # url = "https://httpstat.us/500"
+
+        # Format the address object as a single-line string
         addressString = address['street_number']+" "+address['street_name']+" "+address['street_type_long'] 
         if address.get('street_direction_long') is not None:
             addressString = addressString+" "+address['street_direction_long']
         if address.get('city') is not None:
             addressString = addressString+" "+address['city']
-        requestData = {'SingleLine': addressString, 'f': 'json', 'outSR': '{wkid: 4326}', 'outFields': '*', 'maxLocations': '1'}
-        response = http_client.get(url, params=requestData).json()
-        if response['candidates']:
-            if PRINT_STATEMENTS == 1:
-                print("Validated address! \n")
-            address['validated'] = 'True'
-            if address.get('city') is None:
-                address['city'] = response["candidates"][0]["attributes"]["City"]
-            if address.get('neighborhood') is None:
-                address['neighborhood'] = response["candidates"][0]["attributes"]["Nbrhd"]
-        else:
-            if PRINT_STATEMENTS == 1: 
-                print("Could not validate address! \n")
-        return address
 
+        # Assemble the address string along with other required parameters into the query request
+        requestData = {'SingleLine': addressString, 'f': 'json', 'outSR': '{wkid: 4326}', 'outFields': '*', 'maxLocations': '1'}
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url, params=requestData)
+
+        # If it does, log the HTTP error and return the address unaltered
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return address
+
+        # If it doesn't, inspect the JSON response
+        else:
+            response = http_client.get(url, params=requestData).json()
+
+            # If the response contains results, set the validated attribute on the address to True
+            if response['candidates']:
+                address['validated'] = 'True'
+                logger.debug("Validated "+addressString)
+
+                # If the address object is missing city and neighborhood attributes, add them
+                if address.get('city') is None:
+                    address['city'] = response["candidates"][0]["attributes"]["City"]
+                if address.get('neighborhood') is None:
+                    address['neighborhood'] = response["candidates"][0]["attributes"]["Nbrhd"]
+
+            # If the response doesn't contain results, log a warning and return the address unaltered
+            else:
+                logger.warning("Could not validate "+addressString)
+            return address
+
+
+    # Accepts an address object with a short street type and returns the long street type
     def expand_address_type(self, address):
         if re.search(r'\bAVE\b', address):
             return re.sub(r'\bAVE\b', 'AVENUE', address)
@@ -173,6 +182,7 @@ class ham_prop:
         else:
             return address
 
+    # Accepts an address object with a long street type and returns the short street type
     def contract_address_type(self, address):
         if re.search(r'\bAVENUE\b', address):
             return re.sub(r'\bAVENUE\b', 'AVE', address)
@@ -241,6 +251,7 @@ class ham_prop:
         else:
             return address
 
+    # Accepts an address object with a short direction type and returns the long direction type
     def expand_address_direction(self, address):
         if re.search(r'\bN\b', address):
             return re.sub(r'\bN\b', 'North', address)
@@ -253,6 +264,7 @@ class ham_prop:
         else:   
             return address
 
+    # Accepts an address object with a long direction type and returns the short direction type
     def contract_address_direction(self, address):
         if re.search(r'\bNorth\b', address):
             return re.sub(r'\bNorth\b', 'N', address)
@@ -265,140 +277,273 @@ class ham_prop:
         else:
             return address
 
+
+    # Accepts a Hamilton address object and returns the roll number
     def get_roll_number(self, address):
-    # Accepts a Hamilton address object and returns the roll number.
+
+        # The query URL for the property inquiry application
         url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
+        # url = "https://httpstat.us/500"
+
+        # Create the address string from the street name and the short street type, e.g. 73 Tisdale St 
+        # The property inquiry app chokes on long street types, e.g. 73 Tisdale Street
         addressString = address['street_name']+" "+address['street_type_short']
+
+        # Check to see if the street has a direction, and if so append the short version, e.g. 73 Tisdale St S
+        # The property inquiry app chokes on long street directions, e.g 73 Tisdale S South
         if address.get('street_direction_short') is not None:
             addressString = addressString+" "+address['street_direction_short']
+
+        # Map the city attribute to a 'community' value that the application accepts
+        if address['city'] == "Hamilton":
+            community = "ham010081"
+        else:
+            if address['city'] == "Ancaster":
+                community = "anc140140"
+            else:
+                if address['city'] == "Dundas":
+                    community = "dun260260"
+                else:
+                    if address['city'] == "Flamborough":
+                        community = "fla301303"
+                    else:
+                        if address['city'] == "Glanbrook":
+                            community = "gla901902"
+                        else:
+                            if address['city'] == "Stoney Creek":
+                                community = "scr003003"
+                            else:
+                                community = "all000999"
+
+        # Append the address string along with other required parameters into the request body
         requestData = {
                 "stnum": address['street_number'],
                 "address": addressString,
-                "community": "all000999",
+                "community": community,
                 "B1": "Search"
             }
-        response = BeautifulSoup(http_client.post(url, requestData).text, "html.parser")
-        if response.find("b", text = re.compile("Roll Number")):
-            if PRINT_STATEMENTS == 1:
-                print("Found roll number! \n")
-            return response.find("b", text = re.compile("Roll Number")).parent.parent.next_sibling.next_sibling.contents[0].strip()
-        else:
-            if PRINT_STATEMENTS == 1:
-                print("Could not find roll number! \n")
+
+        # Create an empty roll number object and let's go!
+        roll_number = {}
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.post(url, requestData)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
             return None
 
-    def validate_roll_number(self, roll_number):
-    # Accepts a Hamilton roll number and validates whether it exists.
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-        if self.fetch(url).find("p", {"class": "heads"}, text = re.compile('property detail')):
-            if PRINT_STATEMENTS == 1:
-                print("Validated roll number! \n")
-            return roll_number
+        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
         else:
-            if PRINT_STATEMENTS == 1:
-                print("Could not validate roll number! \n")
-            return None
+            response = BeautifulSoup(http_client.post(url, requestData).text, "html.parser")
 
+            # If the response contains a roll number, return it
+            if response.find("b", text = re.compile("Roll Number")):
+                roll_number = response.find("b", text = re.compile("Roll Number")).parent.parent.next_sibling.next_sibling.contents[0].strip() 
+                logger.debug("Found the roll number for "+address['street_number']+" "+addressString)
+                return roll_number
+
+            # If it doesn't, log a warning and return nothing
+            else:
+                logger.warning("No roll number for "+address['street_number']+" "+addressString)
+                return roll_number
+
+
+    # Accepts a City of Hamilton property roll number and returns an address object.
     def get_address(self, roll_number):
-    # Accepts a Hamilton roll number and returns an address.
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-        address = {}
-        if self.fetch(url).find("p", {"class": "heads"}, text = re.compile('property detail')):
-            def cleanAddressString(addressString):
-                addressString = re.sub("\xa0", "", addressString)
-                addressString = re.sub("\r", "", addressString)
-                addressString = re.sub("\n", "", addressString)
-                addressString = re.sub("\t", "", addressString)
-                addressString = re.sub("-", "", addressString)
-                addressString = re.sub("/", "", addressString)
-                addressString = re.sub(" A ", "", addressString)
-                addressString = re.sub(" B ", "", addressString)
-                addressString = re.sub(" C ", "", addressString)
-                addressString = re.sub(" D ", "", addressString)
-                addressString = re.sub(' +', " ", addressString)
-                addressString = addressString.strip()
-                return addressString
-            strName = cleanAddressString(self.fetch(url).find("b", text = re.compile('Property Address')).parent.parent.next_sibling.next_sibling.contents[0]).split(" ")[1]
-            listURL = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
-            requestData = {"address": strName, "community": "all000999", "B1": "search"}
-            response = BeautifulSoup(http_client.post(listURL, requestData).text, "html.parser")
-            if response.find_all("p", string="Property List"):
-                if PRINT_STATEMENTS == 1:
-                    print("Found roll numbers for streets named "+str(strName)+"! \n")
-                address['street_number'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[1].contents[0].strip()
-                address['street_name'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[0]
-                address['street_type_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[1]
-                if len(response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")) > 2:
-                    address['street_direction_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[2]
-                if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents:
-                    address['unit'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents[0].strip()
-                if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents:
-                    address['city'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents[0].strip()
-        if PRINT_STATEMENTS == 1:
-            print("Found the address! \n")
-        return address
 
+        # Append the roll number to the URL for queries against the city's old Property Inquiry website
+        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
+        # url = "https://httpstat.us/500"
+
+        # Create an empty address object and let's get to work
+        address = {}
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return None
+
+        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup to see if it returned 
+        # a Property Detail record
+        else:
+            if self.fetch(url).find("p", {"class": "heads"}, text = re.compile('property detail')):
+                
+                # If it did return a Property Detail record, log that...
+                logger.debug("Found the address for roll number "+roll_number)
+
+                # Oh, and here's a cleanup function for street names from the Property Detail record
+                def cleanAddressString(addressString):
+                    addressString = re.sub("\xa0", "", addressString)
+                    addressString = re.sub("\r", "", addressString)
+                    addressString = re.sub("\n", "", addressString)
+                    addressString = re.sub("\t", "", addressString)
+                    addressString = re.sub("-", "", addressString)
+                    addressString = re.sub("/", "", addressString)
+                    addressString = re.sub(" A ", "", addressString)
+                    addressString = re.sub(" B ", "", addressString)
+                    addressString = re.sub(" C ", "", addressString)
+                    addressString = re.sub(" D ", "", addressString)
+                    addressString = re.sub(' +', " ", addressString)
+                    addressString = addressString.strip()
+                    return addressString
+
+                # Extract the street name from the Property Detail record and run it through the cleanup function.
+                # The Property Detail record is missing some basic data like city and unit number, so we'll use
+                # the street name to bring up a Property List page that shows all properties on that street. Oddly,
+                # The List page contains a fuller set of data about the property.
+                strName = cleanAddressString(self.fetch(url).find("b", text = re.compile('Property Address')).parent.parent.next_sibling.next_sibling.contents[0]).split(" ")[1]
+
+                # The query URL for the Property Inquiry application
+                listURL = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
+                # listURL = "https://httpstat.us/500"
+
+                # Assemble the street name into request data along with other required parameters
+                requestData = {"address": strName, "community": "all000999", "B1": "search"}
+
+                # Check if the request returns an HTTP error
+                try:
+                    response = http_client.post(listURL, requestData)
+
+                # If it does, log the HTTP error and return nothing
+                except requests.exceptions.RequestException as e:
+                    httpLogger.error(e)
+                    return None
+
+                # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
+                else:
+                    response = BeautifulSoup(http_client.post(listURL, requestData).text, "html.parser")
+
+                # If the response contains a list of properties for that street name, find the property with the correct 
+                # roll number, and assemble an address object from the available data
+                    if response.find_all("p", string="Property List"):
+                        logger.debug("Found a list page for street name "+strName)
+                        address['street_number'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[1].contents[0].strip()
+                        address['street_name'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[0]
+                        address['street_type_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[1]
+                        if len(response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")) > 2:
+                            address['street_direction_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[2]
+                        if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents:
+                            address['unit'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents[0].strip()
+                        if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents:
+                            address['city'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents[0].strip()
+                        return address
+            
+            # If the roll number query did not return a result, log a warning and return nothing
+            else:
+                logger.warning("Could not find an address for roll number "+roll_number)
+                return address
+
+
+    # Makes a get request and returns the HTML response to the BeautifulSoup parser
     def fetch(self, url):
-    # GET a URL and return the result ready to parse using BeautifulSoup
         return(BeautifulSoup(http_client.get(url).text, "html.parser"))
 
-    def get_location(self, address):
-    # Accepts a Hamilton address object and returns long/lat in EPSG:4326 and EPSG:3857 coordinates.
+
+    # Accepts an address object and returns long/lat in EPSG:4326 and EPSG:3857 coordinates.
     # Required input address attributes:
     #   'street_number'
     #   'street_name'
     #   'street_type_long'
     #   'street_direction_short' or 'street_direction_long' if applicable
+    def get_location(self, address):
+
+        # The URL for the City of Hamilton's ArcGIS-powered address search, hosted by Spatial Solutions Inc
         url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/Geocoders/Address_Locator/GeocodeServer/findAddressCandidates"
+        # url = "https://httpstat.us/500"
+
+        # Format the address object as a single-line string
         addressString = address['street_number']+" "+address['street_name']+" "+address['street_type_long'] 
         if address.get('street_direction_long') is not None:
             addressString = addressString+" "+address['street_direction_long']
         if address.get('city') is not None:
             addressString = addressString+" "+address['city']
+
+        # Create an empty location object and let's go!
         location = {}
+
+        # Assemble the address string into requests for EPSG:4326 and EPSG:3857 coordinates,
+        # along with other required parameters
         requestData4326 = {'SingleLine': addressString, 'f': 'json', 'outSR': '{wkid: 4326}', 'outFields': '*', 'maxLocations': '1'}
-        response4326 = http_client.get(url, params=requestData4326).json()
         requestData3857 = {'SingleLine': addressString, 'f': 'json', 'outSR': '{wkid: 3857}', 'outFields': '*', 'maxLocations': '1'}
-        response3857 = http_client.get(url, params=requestData3857).json()
-        if response4326["candidates"]:
-            location['EPSG:4326'] = response4326["candidates"][0]["location"]
-            location['EPSG:3857'] = response3857["candidates"][0]["location"]
-            if PRINT_STATEMENTS == 1:
-                print("Found location! \n")
+
+        # Check if a request returns an HTTP error
+        try:
+            http_client.get(url, params=requestData4326)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return location
+
+        # If it doesn't, get the responses
         else:
-            if PRINT_STATEMENTS == 1:
-                print("Can't find location! \n")
-        return location
+            response4326 = http_client.get(url, params=requestData4326).json()
+            response3857 = http_client.get(url, params=requestData3857).json()
 
+            # If the responses contain candidate results, assemble them into a location object 
+            if response4326["candidates"]:
+                location['EPSG:4326'] = response4326["candidates"][0]["location"]
+                location['EPSG:3857'] = response3857["candidates"][0]["location"]
+                logger.debug("Found the location for "+addressString)
 
-
-    def get_ward(self, location):
-    # Accepts a Hamilton location object and returns the city ward.
-        if location:
-            url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Political/MapServer/15/query"
-            requestData = {
-                    'f': 'json',
-                    'outSR': '{wkid:4326}',
-                    'geometryType': 'esriGeometryPoint',
-                    'inSR': '{wkid:4326}',
-                    'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
-                    'returnIdsOnly': 'true'
-                }
-            response = http_client.get(url, params=requestData)
-            if response.json()['objectIds'] != None:
-                if PRINT_STATEMENTS == 1:
-                    print("Found the ward! \n")
-                return str(response.json()['objectIds'][0])
+            # If they don't, log a warning and return nothing
             else:
-                if PRINT_STATEMENTS == 1:
-                    print("Could not find the ward! \n")
-                return None
-        else:
-            if PRINT_STATEMENTS == 1:
-                print("Could not find the ward because location is empty! \n")
+                logger.warning("Can't find a location for "+addressString)
+            return location
 
-    def get_tax_assessment_years(self, roll_number):
+
+    # Accepts a location object and returns the city ward
+    def get_ward(self, location):
+
+        # The URL for the City of Hamilton's ArcGIS-powered ward query service, hosted by Spatial Solutions Inc
+        url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Political/MapServer/15/query"
+        # url = "https://httpstat.us/500"
+
+        # Assemble the location data into a request, along with other required parameters
+        requestData = {
+                'f': 'json',
+                'outSR': '{wkid:4326}',
+                'geometryType': 'esriGeometryPoint',
+                'inSR': '{wkid:4326}',
+                'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
+                'returnIdsOnly': 'true'
+            }
+
+        # Create an empty ward object and let's go!
+        ward = {}
+
+        # Check if the request returns an HTTP error
+        try:
+            http_client.get(url, params=requestData)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return None
+
+        # If it doesn't, get the response
+        else:
+            response = http_client.get(url, params=requestData)
+
+            # If the reponse contains a ward object, return it
+            if response.json()['objectIds'] != None:
+                ward = str(response.json()['objectIds'][0])
+                logger.debug("Found ward "+ward)
+                return ward
+            else:
+                logger.warning("Couldn't find the ward")
+                return ward
+
+
     # Accepts a roll number and returns a list of tax assessment years
+    def get_tax_assessment_years(self, roll_number):
         assessment_years = []
         url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
         for row in self.fetch(url).find("b", text = re.compile(r"Current Year Assessment")).parent.parent.parent.parent.find_all("tr"):
@@ -458,113 +603,202 @@ class ham_prop:
             print("Found tax installment years! \n")
         return taxInstallmentYears
 
+
+    # Accepts a location object and returns zoning data
     def get_zoning_data(self, location):
-    # Accepts a Hamilton location object and returns zoning data
-        if location:
-            url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query"
-            response = {}
-            checkRequestData = {
-                    'f': 'json',
-                    'outSR': '{wkid:4326}',
-                    'geometryType': 'esriGeometryPoint',
-                    'inSR': '{wkid:4326}',
-                    'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
-                    'returnIdsOnly': 'true',
-                    'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}"
-                }
-            checkResponse = http_client.get(url, params=checkRequestData).json()
-            if checkResponse['objectIds'] != None:
-                if PRINT_STATEMENTS == 1:
-                    print("Found zoning data! \n")
-                requestData = {
-                        'f': 'json',
-                        'returnGeometry': 'false',
-                        'outSR': '{wkid:4326}',
-                        'geometryType': 'esriGeometryPoint',
-                        'inSR': '{wkid:4326}',
-                        'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
-                        'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}",
-                        'outFields': 'ZONING_CODE,ZONING_DESC,PARENT_BY_LAW_NUMBER,PARENT_BY_LAW_URL,BY_LAW_NUMBER,BY_LAW_URL,EXCEPTION1,EXCEPTION1_BYLAW,EXCEPTION1_URL,HOLDING1,HOLDING1_BYLAW,HOLDING1_URL,HOLDING2,HOLDING2_BYLAW,HOLDING2_URL,HOLDING3,HOLDING3_BYLAW,HOLDING3_URL,COMMUNITY,ZONING_MAP,COUNCIL_APP_DATE,ZONING_FILE,OMB_NUMBER,OMB_CASE_NUMBER,OPA_NUMBER,URBAN_RURAL_SETTLE,FINALBINDING_DATE,SHAPE.AREA,SHAPE.LEN'
-                    }
-                response = http_client.get(url, params=requestData).json()['features'][0]['attributes']
-            else:
-               if PRINT_STATEMENTS == 1:
-                    print("Can't find zoning data for this location! \n")
-            return response
-        else:
-            if PRINT_STATEMENTS == 1:
-                print("Can't get zoning data for empty location!")
 
+        # The query URL for the ArcGIS zoning map service, hosted for the city by Spatial Solutions
+        url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query"
+        # url = "https://httpstat.us/500"
+
+        # Assemble the location object into query request data, including some other required parameters
+        # We will use this request to check to see if zoning is returned for this location
+        checkRequestData = {
+                'f': 'json',
+                'outSR': '{wkid:4326}',
+                'geometryType': 'esriGeometryPoint',
+                'inSR': '{wkid:4326}',
+                'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
+                'returnIdsOnly': 'true',
+                'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}"
+        }
+
+        # Assemble the location object into query request data, including some other required parameters
+        # We will use this request to retrieve the zoning data if the check comes back positive
+        requestData = {
+            'f': 'json',
+            'returnGeometry': 'false',
+            'outSR': '{wkid:4326}',
+            'geometryType': 'esriGeometryPoint',
+            'inSR': '{wkid:4326}',
+            'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
+            'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}",
+            'outFields': 'ZONING_CODE,ZONING_DESC,PARENT_BY_LAW_NUMBER,PARENT_BY_LAW_URL,BY_LAW_NUMBER,BY_LAW_URL,EXCEPTION1,EXCEPTION1_BYLAW,EXCEPTION1_URL,HOLDING1,HOLDING1_BYLAW,HOLDING1_URL,HOLDING2,HOLDING2_BYLAW,HOLDING2_URL,HOLDING3,HOLDING3_BYLAW,HOLDING3_URL,COMMUNITY,ZONING_MAP,COUNCIL_APP_DATE,ZONING_FILE,OMB_NUMBER,OMB_CASE_NUMBER,OPA_NUMBER,URBAN_RURAL_SETTLE,FINALBINDING_DATE,SHAPE.AREA,SHAPE.LEN'
+        }
+
+        # Create an empty zoning object and off we go!
+        zoning = {}
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url, params=checkRequestData)
+
+        # If it does, log the HTTP error and return an empty zoning data object
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return zoning
+
+        # If it doesn't, check to see if the response contains zoning data
+        else:
+            checkResponse = http_client.get(url, params=checkRequestData).json()
+            
+            # If it does, return the zoning data
+            if checkResponse['objectIds'] != None:
+                zoning = http_client.get(url, params=requestData).json()['features'][0]['attributes']
+                logger.debug("Found zoning data")
+                return zoning
+
+            # If it doesn't, log a warning and return the empty zoning object
+            else:
+                logger.warning("Could not find zoning data")
+                return zoning
+
+    # Accepts a location object and returns any temporary use applications
     def get_temp_use_data(self, location):
-    # Accepts a Hamilton location object and returns any temporary use applications
-        if location:
-            url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query"
-            response = {}
-            checkRequestData = {
-                    'f': 'json',
-                    'outSR': '{wkid:4326}',
-                    'geometryType': 'esriGeometryPoint',
-                    'inSR': '{wkid:4326}',
-                    'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
-                    'returnIdsOnly': 'true',
-                    'layer': "{'source':{'type':'mapLayer','mapLayerId': '20'}}"
-                }
-            checkResponse = http_client.get(url, params=checkRequestData).json()
-            if checkResponse['objectIds'] != None:
-                if PRINT_STATEMENTS == 1:
-                    print("Found temporary use data! \n")
-                requestData = {
-                        'f': 'json',
-                        'returnGeometry': 'false',
-                        'outSR': '{wkid:4326}',
-                        'geometryType': 'esriGeometryPoint',
-                        'inSR': '{wkid:4326}',
-                        'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
-                        'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}",
-                        'outFields': 'OBJECTID,ID,ZONING_CODE,ZONING_DESC,PARENT_BY_LAW_NUMBER,PARENT_BY_LAW_URL,BY_LAW_NUMBER,BY_LAW_URL,EXCEPTION1,EXCEPTION1_BYLAW,EXCEPTION1_URL,HOLDING1,HOLDING1_BYLAW,HOLDING1_URL,EXCEPTION2,EXCEPTION2_BYLAW,EXCEPTION2_URL,HOLDING2,HOLDING2_BYLAW,HOLDING2_URL,EXCEPTION3,EXCEPTION3_BYLAW,EXCEPTION3_URL,HOLDING3,HOLDING3_BYLAW,HOLDING3_URL,COMMUNITY,ZONING_MAP,COUNCIL_APP_DATE,ZONING_FILE,OMB_NUMBER,OMB_CASE_NUMBER,OPA_NUMBER,URBAN_RURAL_SETTLE,FINALBINDING_DATE,SHAPE.AREA,SHAPE.LEN'
-                    }
-                response = http_client.get(url, params=requestData).json()['features'][0]['attributes']
-            else:
-                if PRINT_STATEMENTS == 1:
-                    print("Can't find temporary use data! \n")
-            return response
-        else:
-            if PRINT_STATEMENTS == 1:
-                print("Can't get temporary use data for empty location!")
 
-    def get_building_permit_apps(self, address):
-    # Accepts a Hamilton address object and returns a list of any building permit applications
-        applications = []
+        # The query URL for the ArcGIS zoning map service, hosted for the city by Spatial Solutions
+        url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query"
+        # url = "https://httpstat.us/500"
+
+        # Assemble the location object into query request data, including some other required parameters
+        # We will use this request to check to see if temp use data is returned for this location
+        checkRequestData = {
+                'f': 'json',
+                'outSR': '{wkid:4326}',
+                'geometryType': 'esriGeometryPoint',
+                'inSR': '{wkid:4326}',
+                'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
+                'returnIdsOnly': 'true',
+                'layer': "{'source':{'type':'mapLayer','mapLayerId': '20'}}"
+        }
+
+        # Assemble the location object into query request data, including some other required parameters
+        # We will use this request to retrieve the temp use data if the check comes back positive
+        requestData = {
+                'f': 'json',
+                'returnGeometry': 'false',
+                'outSR': '{wkid:4326}',
+                'geometryType': 'esriGeometryPoint',
+                'inSR': '{wkid:4326}',
+                'geometry': "{'x': "+str(location['EPSG:4326']['x'])+", 'y': "+str(location['EPSG:4326']['y'])+", 'spatialReference': '{'wkid': '4326'}'}",
+                'layer': "{'source':{'type':'mapLayer','mapLayerId': '9'}}",
+                'outFields': 'OBJECTID,ID,ZONING_CODE,ZONING_DESC,PARENT_BY_LAW_NUMBER,PARENT_BY_LAW_URL,BY_LAW_NUMBER,BY_LAW_URL,EXCEPTION1,EXCEPTION1_BYLAW,EXCEPTION1_URL,HOLDING1,HOLDING1_BYLAW,HOLDING1_URL,EXCEPTION2,EXCEPTION2_BYLAW,EXCEPTION2_URL,HOLDING2,HOLDING2_BYLAW,HOLDING2_URL,EXCEPTION3,EXCEPTION3_BYLAW,EXCEPTION3_URL,HOLDING3,HOLDING3_BYLAW,HOLDING3_URL,COMMUNITY,ZONING_MAP,COUNCIL_APP_DATE,ZONING_FILE,OMB_NUMBER,OMB_CASE_NUMBER,OPA_NUMBER,URBAN_RURAL_SETTLE,FINALBINDING_DATE,SHAPE.AREA,SHAPE.LEN'
+        }
+
+        # Create an empty temp use object and off we go!
+        temp_use = {}
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url, params=checkRequestData)
+
+        # If it does, log the HTTP error and return an empty temp use data object
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return temp_use
+
+        # If it doesn't, check to see if the response contains temp use data
+        else:
+            checkResponse = http_client.get(url, params=checkRequestData).json()
+            
+            # If it does, return the temp use data
+            if checkResponse['objectIds'] != None:
+                temp_use = http_client.get(url, params=requestData).json()['features'][0]['attributes']
+                logger.debug("Found temp use data")
+                return temp_use
+
+            # If it doesn't, log a warning and return the empty temp use object
+            else:
+                logger.warning("Could not find temp use data")
+                return temp_use
+
+
+    # Accepts an address object and returns a list of any building permits
+    def get_building_permits(self, address):
+
+        # Create an empty building permits list
+        building_permits = []
+
+        # The URL for retrieving a session cookie from the Eplans application
         cookieURL = "https://eplans.hamilton.ca/EPlansPortal/sfjsp?interviewID=Welcome"
+
+        # Get a session cookie
         cookie = http_client.get(cookieURL, verify=False).headers['Set-Cookie'].split()[0][:-1]
+
+        # The URL for the application's session manager 
         url = "https://eplans.hamilton.ca/EPlansPortal/sfjsp"
+
+        # Assemble the request headers required to get a session 
         headers = {"Cookie": cookie, "Host": "eplans.hamilton.ca"}
-        response1Data = {"e_1482930323468": "onclick"}
-        response1 = http_client.post(url, data = {"e_1482930323468": "onclick"}, headers = headers, verify = False)
-        if address.get('street_direction_long') is not None:
-            addressString = address['street_number']+';HAMILTON;'+address['street_name']+';'+address['street_direction_long']+';'
+
+        # Check if the request for a session returns an HTTP error
+        try:
+            session_response = http_client.post(url, data = {"e_1482930323468": "onclick"}, headers = headers, verify = False)
+
+        # If it does, log the HTTP error and return an empty building permits list
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return building_permits
+
+        # If it doesn't, time to query the app for permits
         else:
-            addressString = address['street_number']+';HAMILTON;'+address['street_name']+';'
-        response2Data = {
-                "d_1536239857790": "buildingnewconstructionpermit",
-                "d_1537469348077": "address",
-                "d_1536259115820": addressString,
-                "e_1536239857797": "onclick"
-            }
-        response2 = BeautifulSoup(http_client.post(url, data = response2Data, headers = headers, verify = False).text, "html.parser")
-        if response2.find("div", {'class': 'panel-title'}):
-            if PRINT_STATEMENTS == 1:
-                print("Found building permit applications! \n")      
-            for row in response2.find("span", text = re.compile("Application #")).parent.parent.parent.parent.tbody.find_all("tr"):
-                application = {}
-                application["application_number"] = row.find_all("td")[0].div.contents[0].strip().replace(" ", "")
-                application["description"] = row.find_all("td")[1].div.contents[0].strip()
-                application["status"] = row.find_all("td")[3].div.contents[0].strip()
-                applications.append(application)
-        else:
-          if PRINT_STATEMENTS == 1:
-            print("Could not find building permit applications! \n")
-        return applications
+
+            # Construct an address string from the address object
+            if address.get('street_direction_long') is not None:
+                addressString = address['street_number']+';'+address['city']+';'+address['street_name']+';'+address['street_direction_long']+';'
+            else:
+                addressString = address['street_number']+';'+address['city']+';'+address['street_name']+';'
+
+            # Assemble the address string along with other required post parameters into the query request
+            request_data = {
+                    "d_1536239857790": "buildingnewconstructionpermit",
+                    "d_1537469348077": "address",
+                    "d_1536259115820": addressString,
+                    "e_1536239857797": "onclick"
+                }
+
+            # Check if the request for build permits returns an HTTP error
+            try:
+                http_client.post(url, data = request_data, headers = headers, verify = False)
+
+            # If it does, log the HTTP error and return an empty building permits list
+            except requests.exceptions.RequestException as e:
+                httpLogger.error(e)
+                return building_permits
+
+            # If it doesn't, get the response and pass it to BeautifulSoup
+            else:
+                response = BeautifulSoup(http_client.post(url, data = request_data, headers = headers, verify = False).text, "html.parser")
+
+                # If there are building permit records on the page
+                if response.find("div", {'class': 'panel-title'}):
+
+                    # Append them to the building permits list
+                    for row in response.find("span", text = re.compile("Application #")).parent.parent.parent.parent.tbody.find_all("tr"):
+                        permit = {}
+                        permit["application_number"] = row.find_all("td")[0].div.contents[0].strip().replace(" ", "")
+                        permit["description"] = row.find_all("td")[1].div.contents[0].strip()
+                        permit["status"] = row.find_all("td")[3].div.contents[0].strip()
+                        building_permits.append(permit)
+                    logger.debug("Found building permits for "+addressString)
+
+                # If there are no records, log a warning
+                else:
+                    logger.debug("Could not find building permits for "+addressString)
+
+                # Return the building permits object
+                return building_permits
+
 
     def checkTaxExempt(self, roll_number):
     # Returns true if the property associated with the roll number is tax exempt
