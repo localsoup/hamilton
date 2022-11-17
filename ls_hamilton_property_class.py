@@ -6,28 +6,28 @@ from logger import logger
 from http_client import http_client
 import requests
 
-PRINT_STATEMENTS = 1
 
 # Factory class for generating Hamilton property objects 
+# Accepts an address object. Required address attributes are:
+    #   'street_number' (e.g. 73)
+    #   'street_name' (e.g. Tisdale)
+    #   'street_type_short' (e.g. St) or 'street_type_long' (e.g. Street)
+    #   'street_direction_short' (e.g. S) or 'street_direction_long' (South), if applicable
+    #   'city' (must be one of Hamilton, Ancaster, Dundas, Flamborough, Glanbrook, or Stoney Creek)
 class ls_hamilton_property:
-    def __init__(self, address={}, roll_number=""):
-        if address:
-            self.address = address
-            self.address = self.validate_address(self.address)
-            self.roll_number = self.get_roll_number(self.address)
-        if roll_number:
-            self.roll_number = roll_number
-            self.address = self.get_address(self.roll_number)
-            if self.address:
-                self.address = self.validate_address(self.address)
-        if self.address:
-            self.location = self.get_location(self.address)
-        else:
-            self.location = {}
+    def __init__(self, address={}):
+        self.address = self.validate_address(address)
+        self.location = self.get_location(self.address)
+        self.taxes = self.get_taxes(self.address)
+        if self.taxes:
+            for tax in self.taxes:
+                tax = self.check_tax_exempt(tax)
+                tax = self.get_tax_assessment_years(tax)
+                tax = self.get_tax_levy_years(tax)
         if self.location:
             self.ward = self.get_ward(self.location)
         else:
-            self.ward = {}
+            self.ward = None
         if self.location:
             self.zoning = self.get_zoning_data(self.location)
         else:
@@ -38,25 +38,14 @@ class ls_hamilton_property:
             self.temp_use = {}
         if self.location:
             self.building_permits = self.get_building_permits(self.address)
-        else: self.building_permits = {}
-        # if self.roll_number:
-        #     self.tax_assessment_years = self.get_tax_assessment_years(self.roll_number)
-        #     self.tax_levy_years = self.get_tax_levy_years(self.roll_number)
-        #     self.tax_breakdown_years = self.get_tax_breakdown_years(self.roll_number)
-        #     self.tax_installment_years = self.get_tax_installment_years(self.roll_number)
+        else: self.building_permits = []
 
 
     # Accepts an address object, validates the address, and appends any additionally available attributes.
-    # Required input attributes are:
-    #   'street_number'
-    #   'street_name'
-    #   'street_type_short' or 'street_type_long'
-    #   'street_direction_short' or 'street_direction_long' if applicable
-    #   city (Hamilton, Ancaster, Dundas, Flamborough, Glanbrook, or Stoney Creek)
     def validate_address(self, address):
 
         # Flesh out the short and long versions of street types and directions
-        if self.address.get('street_type_short') is not None:
+        if address.get('street_type_short') is not None:
             if address.get('street_type_long') is None:
                 address['street_type_long'] = self.expand_address_type(address['street_type_short'])
         if address.get('street_type_long') is not None:
@@ -111,339 +100,6 @@ class ls_hamilton_property:
             else:
                 logger.warning("Could not validate "+addressString)
             return address
-
-
-    # Accepts an address object with a short street type and returns the long street type
-    def expand_address_type(self, address):
-        if re.search(r'\bAVE\b', address):
-            return re.sub(r'\bAVE\b', 'AVENUE', address)
-        if re.search(r'\bAve\b', address):
-            return re.sub(r'\bAve\b', 'Avenue', address)
-        if re.search(r'\bBLVD\b', address):
-            return re.sub(r'\bBLVD\b', 'BOULEVARD', address)
-        if re.search(r'\bBlvd\b', address):
-            return re.sub(r'\bBlvd\b', 'Boulevard', address)
-        if re.search(r'\bCIR\b', address):
-            return re.sub(r'\bCIR\b', 'CIRCLE', address)
-        if re.search(r'\bCir\b', address):
-            return re.sub(r'\bCir\b', 'Circle', address)
-        if re.search(r'\bCRT\b', address):
-            return re.sub(r'\bCRT\b', 'COURT', address)
-        if re.search(r'\bCrt\b', address):
-            return re.sub(r'\bCrt\b', 'Court', address)
-        if re.search(r'\bCRES\b', address):
-            return re.sub(r'\bCRES\b', 'CRESCENT', address)
-        if re.search(r'\bCres\b', address):
-            return re.sub(r'\bCres\b', 'Crescent', address)
-        if re.search(r'\bDR\b', address):
-            return re.sub(r'\bDR\b', 'DRIVE', address)
-        if re.search(r'\bDr\b', address):
-            return re.sub(r'\bDr\b', 'Drive', address)
-        if re.search(r'\bGDN\b', address):
-            return re.sub(r'\bGDN\b', 'GARDEN', address)
-        if re.search(r'\bGdn\b', address):
-            return re.sub(r'\bGdn\b', 'Garden', address)
-        if re.search(r'\bHTS\b', address):
-            return re.sub(r'\bHTS\b', 'HEIGHTS', address)
-        if re.search(r'\bHts\b', address):
-            return re.sub(r'\bHts\b', 'Heights', address)
-        if re.search(r'\bHWY\b', address):
-            return re.sub(r'\bHWY\b', 'HIGHWAY', address)
-        if re.search(r'\bHwy\b', address):
-            return re.sub(r'\bHwy\b', 'Highway', address)
-        if re.search(r'\bPKY\b', address):
-            return re.sub(r'\bPKY\b', 'PARKWAY', address)
-        if re.search(r'\bPky\b', address):
-            return re.sub(r'\bPky\b', 'Parkway', address)
-        if re.search(r'\bPL\b', address):
-            return re.sub(r'\bPL\b', 'PLACE', address)
-        if re.search(r'\bPl\b', address):
-            return re.sub(r'\bPl\b', 'Place', address)
-        if re.search(r'\bRD\b', address):
-            return re.sub(r'\bRD\b', 'ROAD', address)
-        if re.search(r'\bRd\b', address):
-            return re.sub(r'\bRd\b', 'Road', address)
-        if re.search(r'\bSQ\b', address):
-            return re.sub(r'\bSQ\b', 'SQUARE', address)
-        if re.search(r'\bSq\b', address):
-            return re.sub(r'\bSq\b', 'Square', address)
-        if re.search(r'\bST\b', address):
-            return re.sub(r'\bST\b', 'STREET', address)
-        if re.search(r'\bSt\b', address):
-            return re.sub(r'\bSt\b', 'Street', address)
-        if re.search(r'\bTERR\b', address):
-            return re.sub(r'\bTERR\b', 'TERRACE', address)
-        if re.search(r'\bTerr\b', address):
-            return re.sub(r'\bTerr\b', 'Terrace', address)
-        if re.search(r'\bEXWY\b', address):
-            return re.sub(r'\bEXWY\b', 'EXPRESSWAY', address)
-        if re.search(r'\bExwy\b', address):
-            return re.sub(r'\bExwy\b', 'Expressway', address)
-        else:
-            return address
-
-    # Accepts an address object with a long street type and returns the short street type
-    def contract_address_type(self, address):
-        if re.search(r'\bAVENUE\b', address):
-            return re.sub(r'\bAVENUE\b', 'AVE', address)
-        if re.search(r'\bAvenue\b', address):
-            return re.sub(r'\bAvenue\b', 'Ave', address)
-        if re.search(r'\bBOULEVARD\b', address):
-            return re.sub(r'\bBOULEVARD\b', 'BLVD', address)
-        if re.search(r'\bBoulevard\b', address):
-            return re.sub(r'\bBoulevard\b', 'Blvd', address)
-        if re.search(r'\bCIRCLE\b', address):
-            return re.sub(r'\bCIRCLE\b', 'CIR', address)
-        if re.search(r'\bCircle\b', address):
-            return re.sub(r'\bCircle\b', 'Cir', address)
-        if re.search(r'\bCOURT\b', address):
-            return re.sub(r'\bCOURT\b', 'CRT', address)
-        if re.search(r'\bCourt\b', address):
-            return re.sub(r'\bCourt\b', 'Crt', address)
-        if re.search(r'\bCRESCENT\b', address):
-            return re.sub(r'\bCRESCENT\b', 'CRES', address)
-        if re.search(r'\bCrescent\b', address):
-            return re.sub(r'\bCrescent\b', 'Cres', address)
-        if re.search(r'\bDRIVE\b', address):
-            return re.sub(r'\bDRIVE\b', 'DR', address)
-        if re.search(r'\bDrive\b', address):
-            return re.sub(r'\bDrive\b', 'Dr', address)
-        if re.search(r'\bGARDEN\b', address):
-            return re.sub(r'\bGARDEN\b', 'GDN', address)
-        if re.search(r'\bGarden\b', address):
-            return re.sub(r'\bGarden\b', 'Gdn', address)
-        if re.search(r'\bHEIGHTS\b', address):
-            return re.sub(r'\bHEIGHTS\b', 'HTS', address)
-        if re.search(r'\bHeights\b', address):
-            return re.sub(r'\bHeights\b', 'Hts', address)
-        if re.search(r'\bHIGHWAY\b', address):
-            return re.sub(r'\bHIGHWAY\b', 'HWY', address)
-        if re.search(r'\bHighway\b', address):
-            return re.sub(r'\bHighway\b', 'Hwy', address)
-        if re.search(r'\bPARKWAY\b', address):
-            return re.sub(r'\bPARKWAY\b', 'PKY', address)
-        if re.search(r'\bParkway\b', address):
-            return re.sub(r'\bParkway\b', 'Pky', address)
-        if re.search(r'\bPLACE\b', address):
-            return re.sub(r'\bPLACE\b', 'PL', address)
-        if re.search(r'\bPlace\b', address):
-            return re.sub(r'\bPlace\b', 'Pl', address)
-        if re.search(r'\bROAD\b', address):
-            return re.sub(r'\bROAD\b', 'RD', address)
-        if re.search(r'\bRoad\b', address):
-            return re.sub(r'\bRoad\b', 'Rd', address)
-        if re.search(r'\bSQUARE\b', address):
-            return re.sub(r'\bSQUARE\b', 'SQ', address)
-        if re.search(r'\bSquare\b', address):
-            return re.sub(r'\bSquare\b', 'Sq', address)
-        if re.search(r'\bSTREET\b', address):
-            return re.sub(r'\bSTREET\b', 'ST', address)
-        if re.search(r'\bStreet\b', address):
-            return re.sub(r'\bStreet\b', 'St', address)
-        if re.search(r'\bTERRACE\b', address):
-            return re.sub(r'\bTERRACE\b', 'TERR', address)
-        if re.search(r'\bTerrace\b', address):
-            return re.sub(r'\bTerrace\b', 'Terr', address)
-        if re.search(r'\bEXPRESSWAY\b', address):
-            return re.sub(r'\bEXPRESSWAY\b', 'EXWY', address)
-        if re.search(r'\bExpressway\b', address):
-            return re.sub(r'\bExpressway\b', 'Exwy', address)
-        else:
-            return address
-
-    # Accepts an address object with a short direction type and returns the long direction type
-    def expand_address_direction(self, address):
-        if re.search(r'\bN\b', address):
-            return re.sub(r'\bN\b', 'North', address)
-        if re.search(r'\bS\b', address):
-            return re.sub(r'\bS\b', 'South', address)
-        if re.search(r'\bE\b', address):
-            return re.sub(r'\bE\b', 'East', address)
-        if re.search(r'\bW\b', address):
-            return re.sub(r'\bW\b', 'West', address)
-        else:   
-            return address
-
-    # Accepts an address object with a long direction type and returns the short direction type
-    def contract_address_direction(self, address):
-        if re.search(r'\bNorth\b', address):
-            return re.sub(r'\bNorth\b', 'N', address)
-        if re.search(r'\bSouth\b', address):
-            return re.sub(r'\bSouth\b', 'S', address)
-        if re.search(r'\bEast\b', address):
-            return re.sub(r'\bEast\b', 'E', address)
-        if re.search(r'\bWest\b', address):
-            return re.sub(r'\bWest\b', 'W', address)
-        else:
-            return address
-
-
-    # Accepts a Hamilton address object and returns the roll number
-    def get_roll_number(self, address):
-
-        # The query URL for the property inquiry application
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
-        # url = "https://httpstat.us/500"
-
-        # Create the address string from the street name and the short street type, e.g. 73 Tisdale St 
-        # The property inquiry app chokes on long street types, e.g. 73 Tisdale Street
-        addressString = address['street_name']+" "+address['street_type_short']
-
-        # Check to see if the street has a direction, and if so append the short version, e.g. 73 Tisdale St S
-        # The property inquiry app chokes on long street directions, e.g 73 Tisdale S South
-        if address.get('street_direction_short') is not None:
-            addressString = addressString+" "+address['street_direction_short']
-
-        # Map the city attribute to a 'community' value that the application accepts
-        if address['city'] == "Hamilton":
-            community = "ham010081"
-        else:
-            if address['city'] == "Ancaster":
-                community = "anc140140"
-            else:
-                if address['city'] == "Dundas":
-                    community = "dun260260"
-                else:
-                    if address['city'] == "Flamborough":
-                        community = "fla301303"
-                    else:
-                        if address['city'] == "Glanbrook":
-                            community = "gla901902"
-                        else:
-                            if address['city'] == "Stoney Creek":
-                                community = "scr003003"
-                            else:
-                                community = "all000999"
-
-        # Append the address string along with other required parameters into the request body
-        requestData = {
-                "stnum": address['street_number'],
-                "address": addressString,
-                "community": community,
-                "B1": "Search"
-            }
-
-        # Create an empty roll number object and let's go!
-        roll_number = {}
-
-        # Check if the request returns an HTTP error
-        try:
-            response = http_client.post(url, requestData)
-
-        # If it does, log the HTTP error and return nothing
-        except requests.exceptions.RequestException as e:
-            httpLogger.error(e)
-            return None
-
-        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
-        else:
-            response = BeautifulSoup(http_client.post(url, requestData).text, "html.parser")
-
-            # If the response contains a roll number, return it
-            if response.find("b", text = re.compile("Roll Number")):
-                roll_number = response.find("b", text = re.compile("Roll Number")).parent.parent.next_sibling.next_sibling.contents[0].strip() 
-                logger.debug("Found the roll number for "+address['street_number']+" "+addressString)
-                return roll_number
-
-            # If it doesn't, log a warning and return nothing
-            else:
-                logger.warning("No roll number for "+address['street_number']+" "+addressString)
-                return roll_number
-
-
-    # Accepts a City of Hamilton property roll number and returns an address object.
-    def get_address(self, roll_number):
-
-        # Append the roll number to the URL for queries against the city's old Property Inquiry website
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-        # url = "https://httpstat.us/500"
-
-        # Create an empty address object and let's get to work
-        address = {}
-
-        # Check if the request returns an HTTP error
-        try:
-            response = http_client.get(url)
-
-        # If it does, log the HTTP error and return nothing
-        except requests.exceptions.RequestException as e:
-            httpLogger.error(e)
-            return None
-
-        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup to see if it returned 
-        # a Property Detail record
-        else:
-            if self.fetch(url).find("p", {"class": "heads"}, text = re.compile('property detail')):
-                
-                # If it did return a Property Detail record, log that...
-                logger.debug("Found the address for roll number "+roll_number)
-
-                # Oh, and here's a cleanup function for street names from the Property Detail record
-                def cleanAddressString(addressString):
-                    addressString = re.sub("\xa0", "", addressString)
-                    addressString = re.sub("\r", "", addressString)
-                    addressString = re.sub("\n", "", addressString)
-                    addressString = re.sub("\t", "", addressString)
-                    addressString = re.sub("-", "", addressString)
-                    addressString = re.sub("/", "", addressString)
-                    addressString = re.sub(" A ", "", addressString)
-                    addressString = re.sub(" B ", "", addressString)
-                    addressString = re.sub(" C ", "", addressString)
-                    addressString = re.sub(" D ", "", addressString)
-                    addressString = re.sub(' +', " ", addressString)
-                    addressString = addressString.strip()
-                    return addressString
-
-                # Extract the street name from the Property Detail record and run it through the cleanup function.
-                # The Property Detail record is missing some basic data like city and unit number, so we'll use
-                # the street name to bring up a Property List page that shows all properties on that street. Oddly,
-                # The List page contains a fuller set of data about the property.
-                strName = cleanAddressString(self.fetch(url).find("b", text = re.compile('Property Address')).parent.parent.next_sibling.next_sibling.contents[0]).split(" ")[1]
-
-                # The query URL for the Property Inquiry application
-                listURL = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
-                # listURL = "https://httpstat.us/500"
-
-                # Assemble the street name into request data along with other required parameters
-                requestData = {"address": strName, "community": "all000999", "B1": "search"}
-
-                # Check if the request returns an HTTP error
-                try:
-                    response = http_client.post(listURL, requestData)
-
-                # If it does, log the HTTP error and return nothing
-                except requests.exceptions.RequestException as e:
-                    httpLogger.error(e)
-                    return None
-
-                # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
-                else:
-                    response = BeautifulSoup(http_client.post(listURL, requestData).text, "html.parser")
-
-                # If the response contains a list of properties for that street name, find the property with the correct 
-                # roll number, and assemble an address object from the available data
-                    if response.find_all("p", string="Property List"):
-                        logger.debug("Found a list page for street name "+strName)
-                        address['street_number'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[1].contents[0].strip()
-                        address['street_name'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[0]
-                        address['street_type_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[1]
-                        if len(response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")) > 2:
-                            address['street_direction_short'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[2].contents[0].strip().split(" ")[2]
-                        if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents:
-                            address['unit'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[3].contents[0].strip()
-                        if response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents:
-                            address['city'] = response.find("a", text = re.compile(roll_number)).parent.parent.find_all("td")[4].contents[0].strip()
-                        return address
-            
-            # If the roll number query did not return a result, log a warning and return nothing
-            else:
-                logger.warning("Could not find an address for roll number "+roll_number)
-                return address
-
-
-    # Makes a get request and returns the HTML response to the BeautifulSoup parser
-    def fetch(self, url):
-        return(BeautifulSoup(http_client.get(url).text, "html.parser"))
 
 
     # Accepts an address object and returns long/lat in EPSG:4326 and EPSG:3857 coordinates.
@@ -516,9 +172,6 @@ class ls_hamilton_property:
                 'returnIdsOnly': 'true'
             }
 
-        # Create an empty ward object and let's go!
-        ward = {}
-
         # Check if the request returns an HTTP error
         try:
             http_client.get(url, params=requestData)
@@ -539,69 +192,7 @@ class ls_hamilton_property:
                 return ward
             else:
                 logger.warning("Couldn't find the ward")
-                return ward
-
-
-    # Accepts a roll number and returns a list of tax assessment years
-    def get_tax_assessment_years(self, roll_number):
-        assessment_years = []
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-        for row in self.fetch(url).find("b", text = re.compile(r"Current Year Assessment")).parent.parent.parent.parent.find_all("tr"):
-            if not (row.find(text = re.compile("Year")) or row.find(text = re.compile("Total Assessment")) or row.find(text = re.compile("Current Year Assessment"))):
-                assessment_year = {}
-                assessment_year["year"] = row.find_all("td")[0].contents[0].strip()
-                assessment_year["class"] = row.find_all("td")[1].contents[0].strip()
-                assessment_year["description"] = row.find_all("td")[2].contents[0].strip()
-                assessment_year["amount"] = row.find_all("td")[3].contents[0].strip().replace(",", "")
-                assessment_years.append(assessment_year)
-        if PRINT_STATEMENTS == 1:
-            print("Found tax assessment years! \n")
-        return assessment_years
-
-    def get_tax_levy_years(self, roll_number):
-    # Accepts a roll number and returns a list of tax levy years
-        tax_levy_years = []
-        if not self.checkTaxExempt(roll_number):
-            url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-            for row in self.fetch(url).find(text = re.compile("Tax Levy History")).parent.parent.parent.parent.parent.find_all("tr"):
-                if not (row.find(text = re.compile("Tax Levy History")) or row.find(text = re.compile("Year"))):
-                    tax_levy_year = {}
-                    tax_levy_year["year"] = row.find_all("td")[1].contents[0].strip()
-                    tax_levy_year["amount"] = row.find_all("td")[2].contents[0].strip().replace(",", "")
-                    tax_levy_years.append(tax_levy_year)
-        if PRINT_STATEMENTS == 1:
-            print("Found tax levy years! \n")
-        return tax_levy_years
-
-    def get_tax_breakdown_years(self, roll_number):
-    # Accepts a roll number and returns a list of tax breakdown years
-        taxBreakDownYears = []
-        if not self.checkTaxExempt(roll_number):
-            url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-            for row in self.fetch(url).find(text = re.compile("Breakdown")).parent.parent.parent.parent.parent.find_all("tr"):
-                if not (row.find(text = re.compile("Breakdown")) or row.find(text = re.compile("Type")) or row.find(text = re.compile("Total"))):
-                    taxBreakDownYear = {}
-                    taxBreakDownYear["year"] = self.fetch(url).find(text = re.compile("Breakdown")).split()[0]
-                    taxBreakDownYear[row.find_all("td")[0].contents[0].strip()] = row.find_all("td")[1].contents[0].strip().replace(",", "")    
-                    taxBreakDownYears.append(taxBreakDownYear)
-        if PRINT_STATEMENTS == 1:
-            print("Found tax breakdown years! \n")
-        return taxBreakDownYears
-
-    def get_tax_installment_years(self, roll_number):
-    # Accepts a roll number and returns a list of tax installment years
-        taxInstallmentYears = []
-        if not self.checkTaxExempt(roll_number):
-            url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-            for row in self.fetch(url).find_all(text = re.compile("Instalments"))[0].parent.parent.parent.parent.parent.find_all("tr"):
-                if not (row.find(text = re.compile("Instalments")) or row.find(text = re.compile("Amount")) or row.find(text = re.compile("Total"))):
-                    taxInstallmentYear = {}
-                    taxInstallmentYear["year"] = self.fetch(url).find(text = re.compile("Instalments")).split()[0]
-                    taxInstallmentYear[arrow.get(row.find_all("td")[1].contents[0].strip(), 'MMMM\xa0D,\xa0YYYY').format('MM/DD/YYYY')] = row.find_all("td")[2].contents[0].strip().replace(",", "")
-                    taxInstallmentYears.append(taxInstallmentYear)
-        if PRINT_STATEMENTS == 1:
-            print("Found tax installment years! \n")
-        return taxInstallmentYears
+                return None
 
 
     # Accepts a location object and returns zoning data
@@ -662,6 +253,7 @@ class ls_hamilton_property:
             else:
                 logger.warning("Could not find zoning data")
                 return zoning
+
 
     # Accepts a location object and returns any temporary use applications
     def get_temp_use_data(self, location):
@@ -800,13 +392,408 @@ class ls_hamilton_property:
                 return building_permits
 
 
-    def checkTaxExempt(self, roll_number):
-    # Returns true if the property associated with the roll number is tax exempt
-        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno=" + roll_number
-        if self.fetch(url).find_all("td", {"class": "bodycopy"}, text = re.compile("Exempt")):
-            if PRINT_STATEMENTS == 1:
-                print(str(roll_number)+" is tax exempt! \n")
-            return True
+    # Accepts an address object and returns a list of tax objects with roll number attributes, ready to be populated
+    def get_taxes(self, address):
+
+        # Create an empty list to add tax objects to
+        taxes = []
+
+        # The query URL for the property inquiry application
+        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/list.asp"
+        # url = "https://httpstat.us/500"
+
+        # Create the address string from the street name and the short street type, e.g. 73 Tisdale St 
+        # The property inquiry app chokes on long street types, e.g. 73 Tisdale Street
+        addressString = address['street_name']+" "+address['street_type_short']
+
+        # Check to see if the street has a direction, and if so append the short version, e.g. 73 Tisdale St S
+        # The property inquiry app chokes on long street directions, e.g 73 Tisdale S South
+        if address.get('street_direction_short') is not None:
+            addressString = addressString+" "+address['street_direction_short']
+
+        # Map the city attribute to a 'community' value that the application accepts
+        if address['city'] == "Hamilton":
+            community = "ham010081"
         else:
-            if PRINT_STATEMENTS == 1:
-                print(str(roll_number)+" is NOT tax exempt! \n")
+            if address['city'] == "Ancaster":
+                community = "anc140140"
+            else:
+                if address['city'] == "Dundas":
+                    community = "dun260260"
+                else:
+                    if address['city'] == "Flamborough":
+                        community = "fla301303"
+                    else:
+                        if address['city'] == "Glanbrook":
+                            community = "gla901902"
+                        else:
+                            if address['city'] == "Stoney Creek":
+                                community = "scr003003"
+                            else:
+                                community = "all000999"
+
+        # Append the address string along with other required parameters into the request body
+        requestData = {
+                "stnum": address['street_number'],
+                "address": addressString,
+                "community": community,
+                "B1": "Search"
+            }
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.post(url, requestData)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return taxes
+
+        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
+        else:
+            response = BeautifulSoup(http_client.post(url, requestData).text, "html.parser")
+
+            # If the response includes a list of properties, there is more than one roll number associated with the address
+            # That means we'll need to populate the taxes list with more than one tax object
+            if response.find("p", text = re.compile("Property List")):
+                logger.debug ("Found more than one roll number for "+address['street_number']+" "+addressString)
+
+                # Parse out the roll numbers and return them in a list    
+                roll_numbers = [href.get_text().strip() for href in response.find_all(href=re.compile("detail.asp"))]
+
+                # For each roll number in the list, append a tax object to the taxes list and add the roll number as an attribute
+                for r in roll_numbers:
+                    taxes.append({"roll_number": r})
+
+                # return the taxes list
+                return taxes
+
+            # If the response doesn't contain a list of properties, check to see if the response contains a single roll number
+            else:
+                if response.find("b", text = re.compile("Roll Number")):
+
+                    # If it does, return it
+                    roll_number = response.find("b", text = re.compile("Roll Number")).parent.parent.next_sibling.next_sibling.contents[0].strip() 
+                    logger.debug("Found the roll number for "+address['street_number']+" "+addressString)
+                    taxes = [{"roll_number": roll_number}]
+                    return taxes
+
+                # If it doesn't, log a warning and return nothing
+                else:
+                    logger.warning("No roll number for "+address['street_number']+" "+addressString)
+                    return taxes
+
+
+    # Accepts a tax object and appends an is_tax_exempt attribute
+    # Tax object must have a a roll number attribute
+    def check_tax_exempt(self, tax):
+ 
+        # The URL for querying by roll number against the Property Inquiry application 
+        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno="+tax['roll_number']
+        # url = "https://httpstat.us/500"
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            return tax
+
+        # If it doesn't, parse the response with BeautifulSoup and check to see if it's exempt
+        else:
+            if self.fetch(url).find_all("td", {"class": "bodycopy"}, text = re.compile("Exempt")):
+
+                # If it is, set is_tax_exempt to True, and return tax object
+                logger.debug(tax['roll_number']+" is tax exempt")
+                tax["is_tax_exempt"] = True
+                return tax
+
+            # If it isn't, set is_tax_exempt to False, and return tax object
+            else:
+                logger.debug(tax['roll_number']+" is not tax exempt")
+                tax["is_tax_exempt"] = False
+                return tax
+
+
+    # Accepts a tax object and appends a list of tax assessment years
+    # Tax object must have a a roll number attribute
+    def get_tax_assessment_years(self, tax):
+
+        # Create an empty list to populate with tax assessment years
+        assessment_years = []
+
+        # URL for querying Property Inquiry application by roll number
+        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno="+tax['roll_number']
+        # url = "https://httpstat.us/500"
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            tax["assessment_years"] = assessment_years
+            return tax
+
+        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
+        else:
+
+            # For each row in the tax assessment table, create a record
+            for row in self.fetch(url).find("b", text = re.compile(r"Current Year Assessment")).parent.parent.parent.parent.find_all("tr"):
+                if not (row.find(text = re.compile("Year")) or row.find(text = re.compile("Total Assessment")) or row.find(text = re.compile("Current Year Assessment"))):
+                    assessment_year = {}
+                    assessment_year["year"] = row.find_all("td")[0].contents[0].strip()
+                    assessment_year["class"] = row.find_all("td")[1].contents[0].strip()
+                    assessment_year["description"] = row.find_all("td")[2].contents[0].strip()
+                    assessment_year["amount"] = row.find_all("td")[3].contents[0].strip().replace(",", "")
+                    
+                    # Append the record to the assessment years list
+                    assessment_years.append(assessment_year)
+
+            # Add the assessment years attribute to the tax object, and return it
+            tax["assessment_years"] = assessment_years
+            logger.debug("Found tax assessment years for roll number "+tax['roll_number'])
+            return tax
+
+
+    # Accepts a tax object and appends a list of tax levy years
+    # Tax object must have a a roll number attribute
+    def get_tax_levy_years(self, tax):
+
+        # Create an empty list to populate with tax levy years
+        levy_years = []
+
+        # URL for querying Property Inquiry application by roll number
+        url = "http://oldproperty.hamilton.ca/property-inquiry_noborders/detail.asp?qryrollno="+tax['roll_number']
+        # url = "https://httpstat.us/500"
+
+        # Check if the request returns an HTTP error
+        try:
+            response = http_client.get(url)
+
+        # If it does, log the HTTP error and return nothing
+        except requests.exceptions.RequestException as e:
+            httpLogger.error(e)
+            tax["levy_years"] = levy_years
+            return tax
+
+        # If it doesn't, convert the HTML response to text and parse it with BeautifulSoup
+        else:
+
+            # Check to see if the property is tax exempt
+            if not tax.get('is_tax_exempt'):
+
+                # If not, for each year in the tax levy table, add a year object
+                for row in self.fetch(url).find(text = re.compile("Tax Levy History")).parent.parent.parent.parent.parent.find_all("tr"):
+                    if not (row.find(text = re.compile("Tax Levy History")) or row.find(text = re.compile("Year"))):
+                        levy_year = {}
+                        levy_year["year"] = row.find_all("td")[1].contents[0].strip()
+
+                        # Add an amount object to the year object
+                        levy_year['amount'] = {}
+
+                        # Add the total amount for the year
+                        levy_year["amount"]['total'] = row.find_all("td")[2].contents[0].strip().replace(",", "")
+
+                        # Append the record to the levy years list
+                        levy_years.append(levy_year) 
+
+                # For each row in the Breakdown table, add municipal and education levy attributes to the amount 
+                # record for the first levy year (The first year will always be the current year, for which the app 
+                # breaks out amounts)
+                for row in self.fetch(url).find(text = re.compile("Breakdown")).parent.parent.parent.parent.parent.find_all("tr"):
+                    if not (row.find(text = re.compile("Breakdown")) or row.find(text = re.compile("Type")) or row.find(text = re.compile("Total"))):
+                        levy_years[0]['amount'][row.find_all("td")[0].contents[0].strip().replace(" ", "_").lower()] = row.find_all("td")[1].contents[0].strip().replace(",", "")
+
+                # Add an empty installments list to first levy year object (The first year will always be the current year, 
+                # for which the app provides a table of installments)
+                levy_years[0]['installments'] = []
+
+                # For each row in the Installments table, append an installment object to the list (inc. date and amount)
+                for row in self.fetch(url).find_all(text = re.compile("Instalments"))[0].parent.parent.parent.parent.parent.find_all("tr"):
+                    if not (row.find(text = re.compile("Instalments")) or row.find(text = re.compile("Amount")) or row.find(text = re.compile("Total"))):
+                        levy_years[0]['installments'].append({'date': arrow.get(row.find_all("td")[1].contents[0].strip(), 'MMMM\xa0D,\xa0YYYY').format('MM/DD/YYYY'), 'amount': row.find_all("td")[2].contents[0].strip().replace(",", "")})
+
+                # Add the levy years attribute to the tax object, and return it
+                tax["levy_years"] = levy_years
+                logger.debug("Found tax levy years for roll number "+tax['roll_number'])
+                return tax
+
+
+# -- UTILITY FUNCTIONS --
+
+
+    # Accepts an address object with a short street type and returns the long street type
+    def expand_address_type(self, address):
+        if re.search(r'\bAVE\b', address):
+            return re.sub(r'\bAVE\b', 'AVENUE', address)
+        if re.search(r'\bAve\b', address):
+            return re.sub(r'\bAve\b', 'Avenue', address)
+        if re.search(r'\bBLVD\b', address):
+            return re.sub(r'\bBLVD\b', 'BOULEVARD', address)
+        if re.search(r'\bBlvd\b', address):
+            return re.sub(r'\bBlvd\b', 'Boulevard', address)
+        if re.search(r'\bCIR\b', address):
+            return re.sub(r'\bCIR\b', 'CIRCLE', address)
+        if re.search(r'\bCir\b', address):
+            return re.sub(r'\bCir\b', 'Circle', address)
+        if re.search(r'\bCRT\b', address):
+            return re.sub(r'\bCRT\b', 'COURT', address)
+        if re.search(r'\bCrt\b', address):
+            return re.sub(r'\bCrt\b', 'Court', address)
+        if re.search(r'\bCRES\b', address):
+            return re.sub(r'\bCRES\b', 'CRESCENT', address)
+        if re.search(r'\bCres\b', address):
+            return re.sub(r'\bCres\b', 'Crescent', address)
+        if re.search(r'\bDR\b', address):
+            return re.sub(r'\bDR\b', 'DRIVE', address)
+        if re.search(r'\bDr\b', address):
+            return re.sub(r'\bDr\b', 'Drive', address)
+        if re.search(r'\bGDN\b', address):
+            return re.sub(r'\bGDN\b', 'GARDEN', address)
+        if re.search(r'\bGdn\b', address):
+            return re.sub(r'\bGdn\b', 'Garden', address)
+        if re.search(r'\bHTS\b', address):
+            return re.sub(r'\bHTS\b', 'HEIGHTS', address)
+        if re.search(r'\bHts\b', address):
+            return re.sub(r'\bHts\b', 'Heights', address)
+        if re.search(r'\bHWY\b', address):
+            return re.sub(r'\bHWY\b', 'HIGHWAY', address)
+        if re.search(r'\bHwy\b', address):
+            return re.sub(r'\bHwy\b', 'Highway', address)
+        if re.search(r'\bPKY\b', address):
+            return re.sub(r'\bPKY\b', 'PARKWAY', address)
+        if re.search(r'\bPky\b', address):
+            return re.sub(r'\bPky\b', 'Parkway', address)
+        if re.search(r'\bPL\b', address):
+            return re.sub(r'\bPL\b', 'PLACE', address)
+        if re.search(r'\bPl\b', address):
+            return re.sub(r'\bPl\b', 'Place', address)
+        if re.search(r'\bRD\b', address):
+            return re.sub(r'\bRD\b', 'ROAD', address)
+        if re.search(r'\bRd\b', address):
+            return re.sub(r'\bRd\b', 'Road', address)
+        if re.search(r'\bSQ\b', address):
+            return re.sub(r'\bSQ\b', 'SQUARE', address)
+        if re.search(r'\bSq\b', address):
+            return re.sub(r'\bSq\b', 'Square', address)
+        if re.search(r'\bST\b', address):
+            return re.sub(r'\bST\b', 'STREET', address)
+        if re.search(r'\bSt\b', address):
+            return re.sub(r'\bSt\b', 'Street', address)
+        if re.search(r'\bTERR\b', address):
+            return re.sub(r'\bTERR\b', 'TERRACE', address)
+        if re.search(r'\bTerr\b', address):
+            return re.sub(r'\bTerr\b', 'Terrace', address)
+        if re.search(r'\bEXWY\b', address):
+            return re.sub(r'\bEXWY\b', 'EXPRESSWAY', address)
+        if re.search(r'\bExwy\b', address):
+            return re.sub(r'\bExwy\b', 'Expressway', address)
+        else:
+            return address
+
+
+    # Accepts an address object with a long street type and returns the short street type
+    def contract_address_type(self, address):
+        if re.search(r'\bAVENUE\b', address):
+            return re.sub(r'\bAVENUE\b', 'AVE', address)
+        if re.search(r'\bAvenue\b', address):
+            return re.sub(r'\bAvenue\b', 'Ave', address)
+        if re.search(r'\bBOULEVARD\b', address):
+            return re.sub(r'\bBOULEVARD\b', 'BLVD', address)
+        if re.search(r'\bBoulevard\b', address):
+            return re.sub(r'\bBoulevard\b', 'Blvd', address)
+        if re.search(r'\bCIRCLE\b', address):
+            return re.sub(r'\bCIRCLE\b', 'CIR', address)
+        if re.search(r'\bCircle\b', address):
+            return re.sub(r'\bCircle\b', 'Cir', address)
+        if re.search(r'\bCOURT\b', address):
+            return re.sub(r'\bCOURT\b', 'CRT', address)
+        if re.search(r'\bCourt\b', address):
+            return re.sub(r'\bCourt\b', 'Crt', address)
+        if re.search(r'\bCRESCENT\b', address):
+            return re.sub(r'\bCRESCENT\b', 'CRES', address)
+        if re.search(r'\bCrescent\b', address):
+            return re.sub(r'\bCrescent\b', 'Cres', address)
+        if re.search(r'\bDRIVE\b', address):
+            return re.sub(r'\bDRIVE\b', 'DR', address)
+        if re.search(r'\bDrive\b', address):
+            return re.sub(r'\bDrive\b', 'Dr', address)
+        if re.search(r'\bGARDEN\b', address):
+            return re.sub(r'\bGARDEN\b', 'GDN', address)
+        if re.search(r'\bGarden\b', address):
+            return re.sub(r'\bGarden\b', 'Gdn', address)
+        if re.search(r'\bHEIGHTS\b', address):
+            return re.sub(r'\bHEIGHTS\b', 'HTS', address)
+        if re.search(r'\bHeights\b', address):
+            return re.sub(r'\bHeights\b', 'Hts', address)
+        if re.search(r'\bHIGHWAY\b', address):
+            return re.sub(r'\bHIGHWAY\b', 'HWY', address)
+        if re.search(r'\bHighway\b', address):
+            return re.sub(r'\bHighway\b', 'Hwy', address)
+        if re.search(r'\bPARKWAY\b', address):
+            return re.sub(r'\bPARKWAY\b', 'PKY', address)
+        if re.search(r'\bParkway\b', address):
+            return re.sub(r'\bParkway\b', 'Pky', address)
+        if re.search(r'\bPLACE\b', address):
+            return re.sub(r'\bPLACE\b', 'PL', address)
+        if re.search(r'\bPlace\b', address):
+            return re.sub(r'\bPlace\b', 'Pl', address)
+        if re.search(r'\bROAD\b', address):
+            return re.sub(r'\bROAD\b', 'RD', address)
+        if re.search(r'\bRoad\b', address):
+            return re.sub(r'\bRoad\b', 'Rd', address)
+        if re.search(r'\bSQUARE\b', address):
+            return re.sub(r'\bSQUARE\b', 'SQ', address)
+        if re.search(r'\bSquare\b', address):
+            return re.sub(r'\bSquare\b', 'Sq', address)
+        if re.search(r'\bSTREET\b', address):
+            return re.sub(r'\bSTREET\b', 'ST', address)
+        if re.search(r'\bStreet\b', address):
+            return re.sub(r'\bStreet\b', 'St', address)
+        if re.search(r'\bTERRACE\b', address):
+            return re.sub(r'\bTERRACE\b', 'TERR', address)
+        if re.search(r'\bTerrace\b', address):
+            return re.sub(r'\bTerrace\b', 'Terr', address)
+        if re.search(r'\bEXPRESSWAY\b', address):
+            return re.sub(r'\bEXPRESSWAY\b', 'EXWY', address)
+        if re.search(r'\bExpressway\b', address):
+            return re.sub(r'\bExpressway\b', 'Exwy', address)
+        else:
+            return address
+
+
+    # Accepts an address object with a short direction type and returns the long direction type
+    def expand_address_direction(self, address):
+        if re.search(r'\bN\b', address):
+            return re.sub(r'\bN\b', 'North', address)
+        if re.search(r'\bS\b', address):
+            return re.sub(r'\bS\b', 'South', address)
+        if re.search(r'\bE\b', address):
+            return re.sub(r'\bE\b', 'East', address)
+        if re.search(r'\bW\b', address):
+            return re.sub(r'\bW\b', 'West', address)
+        else:   
+            return address
+
+
+    # Accepts an address object with a long direction type and returns the short direction type
+    def contract_address_direction(self, address):
+        if re.search(r'\bNorth\b', address):
+            return re.sub(r'\bNorth\b', 'N', address)
+        if re.search(r'\bSouth\b', address):
+            return re.sub(r'\bSouth\b', 'S', address)
+        if re.search(r'\bEast\b', address):
+            return re.sub(r'\bEast\b', 'E', address)
+        if re.search(r'\bWest\b', address):
+            return re.sub(r'\bWest\b', 'W', address)
+        else:
+            return address
+
+
+    # Makes a get request and returns the HTML response to the BeautifulSoup parser
+    def fetch(self, url):
+        return(BeautifulSoup(http_client.get(url).text, "html.parser"))

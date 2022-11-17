@@ -1,21 +1,14 @@
 import ls_hamilton_property_class
 import json
 
-my_address = {'street_number': '73', 'street_name': 'Tisdale', 'street_type_short': 'ST', 'street_direction_short': 'S'}
 
-# my_address = {'street_number': '123', 'street_name': 'King', 'street_type_short': 'ST', 'street_direction_short': 'W'}
-
-
-# my_address = {'street_number': '17', 'street_name': 'Discovery', 'street_type_short': 'DR'}
-
-my_prop = ls_hamilton_property_class.ham_prop(address=my_address)
-
-# my_roll_number = '03020406170'
-
-# my_roll_number = '02016408140'
-
-# my_prop = ls_hamilton_property_class.ham_prop(roll_number=my_roll_number)
+# my_address = {'street_number': '73', 'street_name': 'Tisdale', 'street_type_short': 'ST', 'street_direction_short': 'S', 'city': 'Hamilton'}
+# my_address = {'street_number': '194', 'street_name': 'King', 'street_type_short': 'ST', 'street_direction_short': 'W', 'city': 'Hamilton'}
+my_address = {'street_number': '17', 'street_name': 'Discovery', 'street_type_short': 'DR', 'city': 'Hamilton'}
+# my_address = {'street_number': '73', 'street_name': 'Fucknuts', 'street_type_short': 'DR', 'city': 'Shittsville'}
 
 
-
+my_prop = ls_hamilton_property_class.ls_hamilton_property(address=my_address)
 print(json.dumps(my_prop.__dict__, indent=4))
+
+
