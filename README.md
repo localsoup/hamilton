@@ -102,9 +102,131 @@ http://oldproperty.hamilton.ca/property-inquiry_noborders/default.asp
 The class uses this application to retrieve and append roll numbers, tax assessments, and tax levies to the property record.
 
 
-# The JSON record
+# The property record
 
 Here's an example of a property record:
+
+{
+    "address": {
+        "street_number": "17",
+        "street_name": "Discovery",
+        "street_type_short": "DR",
+        "city": "Hamilton",
+        "street_type_long": "DRIVE",
+        "validated": "True",
+        "neighborhood": ""
+    },
+    "location": {
+        "EPSG:4326": {
+            "x": -79.86064186418574,
+            "y": 43.274923539312546
+        },
+        "EPSG:3857": {
+            "x": -8890045.986745141,
+            "y": 5353912.075112301
+        }
+    },
+    "taxes": [
+        {
+            "roll_number": "02016408140",
+            "is_tax_exempt": true,
+            "assessment_years": [
+                {
+                    "year": "2022",
+                    "class": "E",
+                    "description": "Exempt",
+                    "amount": "1653600"
+                }
+            ]
+        },
+        {
+            "roll_number": "02016499999",
+            "is_tax_exempt": false,
+            "assessment_years": [
+                {
+                    "year": "2022",
+                    "class": "CT",
+                    "description": "Commercial Taxable",
+                    "amount": "637400"
+                }
+            ],
+            "levy_years": [
+                {
+                    "year": "2022",
+                    "amount": {
+                        "total": "19393.86",
+                        "municipal_levy": "13784.74",
+                        "education_levy": "5609.12"
+                    },
+                    "installments": [
+                        {
+                            "date": "02/28/2022",
+                            "amount": "4733.00"
+                        },
+                        {
+                            "date": "04/29/2022",
+                            "amount": "4732.46"
+                        },
+                        {
+                            "date": "06/30/2022",
+                            "amount": "4964.00"
+                        },
+                        {
+                            "date": "09/30/2022",
+                            "amount": "4964.40"
+                        }
+                    ]
+                },
+                {
+                    "year": "2021",
+                    "amount": {
+                        "total": "18930.92"
+                    }
+                }
+            ]
+        }
+    ],
+    "ward": "2",
+    "zoning": {
+        "ZONING_CODE": "F-1/S-1641-H",
+        "ZONING_DESC": "Waterfront Recreational - Holding",
+        "PARENT_BY_LAW_NUMBER": "6593 Former Hamilton",
+        "PARENT_BY_LAW_URL": "https://www.hamilton.ca/city-planning/official-plan-zoning-by-law/zoning-by-laws-former-communities",
+        "BY_LAW_NUMBER": "14-042",
+        "BY_LAW_URL": "https://www.hamilton.ca/government-information/by-laws-and-enforcement/by-laws-passed-in-2014",
+        "EXCEPTION1": null,
+        "EXCEPTION1_BYLAW": null,
+        "EXCEPTION1_URL": null,
+        "HOLDING1": null,
+        "HOLDING1_BYLAW": null,
+        "HOLDING1_URL": null,
+        "HOLDING2": null,
+        "HOLDING2_BYLAW": null,
+        "HOLDING2_URL": null,
+        "HOLDING3": null,
+        "HOLDING3_BYLAW": null,
+        "HOLDING3_URL": null,
+        "COMMUNITY": "Hamilton",
+        "ZONING_MAP": "827",
+        "COUNCIL_APP_DATE": 1393390800000,
+        "ZONING_FILE": "CI-13-A",
+        "OMB_NUMBER": "PL140315",
+        "OMB_CASE_NUMBER": "PL140314",
+        "OPA_NUMBER": null,
+        "URBAN_RURAL_SETTLE": "U",
+        "FINALBINDING_DATE": 1575954000000,
+        "SHAPE.AREA": 37789.36920364,
+        "SHAPE.LEN": 1066.4679101219301
+    },
+    "temp_use": {},
+    "building_permits": [
+        {
+            "application_number": "2019574500",
+            "description": "To demolish a 2- storey, 258 m\u00b2 office building (former Hamilton Marine Police Unit).",
+            "status": "Closed"
+        }
+    ]
+}
 
 
 # License
