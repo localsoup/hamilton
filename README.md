@@ -109,4 +109,4 @@ Here's an example of a property record:
 
 # License
 
-This code is licensed under the Linux Foundation common license.
+This code is licensed under the [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) open source license, which bascially means you can do whatever you want with it.
