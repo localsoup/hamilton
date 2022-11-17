@@ -106,6 +106,7 @@ The class uses this application to retrieve and append roll numbers, tax assessm
 
 Here's an example of a property record:
 
+```
 {
     "address": {
         "street_number": "17",
@@ -227,8 +228,8 @@ Here's an example of a property record:
         }
     ]
 }
-
+```
 
 # License
 
-This code is licensed under the [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) open source license, which bascially means you can do whatever you want with it.
+This code is licensed under the [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) open source license.
