@@ -324,8 +324,9 @@ class ls_hamilton_property:
         # The URL for retrieving a session cookie from the Eplans application
         cookieURL = "https://eplans.hamilton.ca/EPlansPortal/sfjsp?interviewID=Welcome"
 
-        # Get a session cookie
-        cookie = http_client.get(cookieURL, verify=False).headers['Set-Cookie'].split()[0][:-1]
+        # Extract the raw session cookie from the http client's 'cookies' object
+        cookies = http_client.get(cookieURL, verify=False).cookies.get_dict()
+        cookie = next(iter(cookies))+"="+list(cookies.values())[0]
 
         # The URL for the application's session manager 
         url = "https://eplans.hamilton.ca/EPlansPortal/sfjsp"
@@ -412,25 +413,28 @@ class ls_hamilton_property:
             addressString = addressString+" "+address['street_direction_short']
 
         # Map the city attribute to a 'community' value that the application accepts
-        if address['city'] == "Hamilton":
-            community = "ham010081"
-        else:
-            if address['city'] == "Ancaster":
-                community = "anc140140"
+        if 'city' in address:
+            if address['city'] == "Hamilton":
+                community = "ham010081"
             else:
-                if address['city'] == "Dundas":
-                    community = "dun260260"
+                if address['city'] == "Ancaster":
+                    community = "anc140140"
                 else:
-                    if address['city'] == "Flamborough":
-                        community = "fla301303"
+                    if address['city'] == "Dundas":
+                        community = "dun260260"
                     else:
-                        if address['city'] == "Glanbrook":
-                            community = "gla901902"
+                        if address['city'] == "Flamborough":
+                            community = "fla301303"
                         else:
-                            if address['city'] == "Stoney Creek":
-                                community = "scr003003"
+                            if address['city'] == "Glanbrook":
+                                community = "gla901902"
                             else:
-                                community = "all000999"
+                                if address['city'] == "Stoney Creek":
+                                    community = "scr003003"
+                                else:
+                                    community = "all000999"
+        else:
+            community = "all000999"
 
         # Append the address string along with other required parameters into the request body
         requestData = {
@@ -692,6 +696,18 @@ class ls_hamilton_property:
             return re.sub(r'\bEXWY\b', 'EXPRESSWAY', address)
         if re.search(r'\bExwy\b', address):
             return re.sub(r'\bExwy\b', 'Expressway', address)
+        if re.search(r'\bVILLGE\b', address):
+            return re.sub(r'\bVILLGE\b', 'VILLAGE', address)
+        if re.search(r'\bVillge\b', address):
+            return re.sub(r'\bVillge\b', 'Village', address)
+        if re.search(r'\bPT\b', address):
+            return re.sub(r'\bPT\b', 'POINT', address)
+        if re.search(r'\bPt\b', address):
+            return re.sub(r'\bPt\b', 'Point', address)
+        if re.search(r'\bSIDERD\b', address):
+            return re.sub(r'\bSIDERD\b', 'SIDEROAD', address)
+        if re.search(r'\bSiderd\b', address):
+            return re.sub(r'\bSiderd\b', 'Sideroad', address)
         else:
             return address
 
@@ -762,6 +778,18 @@ class ls_hamilton_property:
             return re.sub(r'\bEXPRESSWAY\b', 'EXWY', address)
         if re.search(r'\bExpressway\b', address):
             return re.sub(r'\bExpressway\b', 'Exwy', address)
+        if re.search(r'\bVILLAGE\b', address):
+            return re.sub(r'\bVILLAGE\b', 'VILLGE', address)
+        if re.search(r'\bVillage\b', address):
+            return re.sub(r'\bVillage\b', 'Villge', address)
+        if re.search(r'\bPOINT\b', address):
+            return re.sub(r'\bPOINT\b', 'PT', address)
+        if re.search(r'\bPoint\b', address):
+            return re.sub(r'\bPoint\b', 'Pt', address)
+        if re.search(r'\bSIDEROAD\b', address):
+            return re.sub(r'\bSIDEROAD\b', 'SIDERD', address)
+        if re.search(r'\bSideroad\b', address):
+            return re.sub(r'\bSideroad\b', 'Siderd', address)
         else:
             return address
 
