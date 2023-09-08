@@ -52,59 +52,25 @@ You can add your own addresses to try them out. Comment out all the address exce
 The code will print a JSON record to your console screen - it might take a few seconds, because there's a lot of data to assemble from a lot of different places. If it's unsuccessful, it will just print a record that's empty except for the original address you provided. You can look in the localsoup.log file to see what happened. Sometimes the applications and services that provide the data go down and aren't available, and sometimes the address just doesn't match. But if it works, it'll be full of good stuff.
 
 
-## Data sources
+## The address object
+The ls_hamilton_property class accepts an address object and returns a property object that includes all of the information it has found. The class has it's own naming conventions for address attributes, so you'll need to format your address accordingly before submitting it. Here are all the address attributes. For clarity, I'll use this address for examples: 
 
-All of the data that the class collects is freely available public data published by the City of Hamilton to the open internet for anybody to use in any way they see fit. It's just scattered about and hard to access. The class gets at the data either by parsing HTML from city-run Web applications (using a fantastic Python package called [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/), or by querying services that provide data for various maps that the city has published.
+73 Tisdale Street South, Hamilton, Ontario, Canada, L8N 2W1
 
-Here are the data sources:
-
-### Address search
-
-The City of Hamilton publishes an ArcGIS web endpoint for finding Hamilton addresses at: 
-
-https://spatialsolutions.hamilton.ca/webgis/rest/services/Geocoders/Address_Locator/GeocodeServer/findAddressCandidates
-
-The class uses this service to verify addresses, append additional data to them, and retrieve lat/long coordinates.
-
-### Ward boundaries
-
-The City of Hamilton publishes an ArcGIS web endpoint for retriving the ward of a given address at:
-
-https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Political/MapServer/15/query
-
-The class uses this service to append the ward to the property record.
+| Attribute | Description | Required? |
+| --------- | ----------- | --------- |
+| street_number | E.g. 73 | Yes |
+| street_name | E.g. Tisdale | Yes |
+| street_type_long | The full name of the type of street, e.g. Street. Also accepts Avenue, Boulevard, Circle, Court, Crescent, Drive, Garden, Heights, Highway, Parkway, Place, Road, Square, Terrace, Expressway, Village, Point and Sideroad | Yes. However, you must specify either a long or short street type. You don't need to specify both. |
+| street_type_short | The abbreviated name of the type of street, e.g. St. Also accepts Ave, Blvd, Cir, Crt, Cres, Dr, Gdn, Hts, Hwy, Pky, Pl, Rd, Sq, Terr, Exwy, Villge, Pt and Siderd. | Yes. However, you must specify either a long or short street type. You don't need to specify both. |
+| street_direction_long | E.g. South. Also accepts North, East and West. | No. Also, you only need to specify either a long or short street type. You don't need to specify both. |
+| street_direction_short | E.g. S. Also accepts N, E and W. | No. Also, you only need to specify either a long or short street type. You don't need to specify both. |
+| city | E.g. Hamilton. Also accepts Ancaster, Dundas, Flamborough, Glanbrook and Stoney Creek. | Yes |
 
 
-### Zoning search
+## The property object
 
-The City of Hamilton publishes an ArcGIS web endpoint for retriving zoning data at:
-
-https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query
-
-The class uses this service to append zoning classifications and temporary use exemptions to the property record.
-
-
-### Building permits
-
-The City of Hamilton hosts a JSP application for building permit searches at:
-
-https://eplans.hamilton.ca/EPlansPortal/sfjsp
-
-The class uses this application to retrieve and append building permit applications and statuses to the property record.
-
-
-### Property taxes
-
-The City of Hamilton hosts an ASP application for inquiring about property taxes at:
-
-http://oldproperty.hamilton.ca/property-inquiry_noborders/default.asp
-
-The class uses this application to retrieve and append roll numbers, tax assessments, and tax levies to the property record.
-
-
-## The property record
-
-Here's an example of a property record:
+The ls_hamilton_property class returns a property object. Here's an example:
 
 ```
 {
@@ -229,6 +195,56 @@ Here's an example of a property record:
     ]
 }
 ```
+
+## Data sources
+
+All of the data that the class collects is freely available public data published by the City of Hamilton to the open internet for anybody to use in any way they see fit. It's just scattered about and hard to access. The class gets at the data either by parsing HTML from city-run Web applications (using a fantastic Python package called [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/), or by querying services that provide data for various maps that the city has published.
+
+Here are the data sources:
+
+### Address search
+
+The City of Hamilton publishes an ArcGIS web endpoint for finding Hamilton addresses at: 
+
+https://spatialsolutions.hamilton.ca/webgis/rest/services/Geocoders/Address_Locator/GeocodeServer/findAddressCandidates
+
+The class uses this service to verify addresses, append additional data to them, and retrieve lat/long coordinates.
+
+### Ward boundaries
+
+The City of Hamilton publishes an ArcGIS web endpoint for retriving the ward of a given address at:
+
+https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Political/MapServer/15/query
+
+The class uses this service to append the ward to the property record.
+
+
+### Zoning search
+
+The City of Hamilton publishes an ArcGIS web endpoint for retriving zoning data at:
+
+https://spatialsolutions.hamilton.ca/webgis/rest/services/General/Zoning/MapServer/dynamicLayer/query
+
+The class uses this service to append zoning classifications and temporary use exemptions to the property record.
+
+
+### Building permits
+
+The City of Hamilton hosts a JSP application for building permit searches at:
+
+https://eplans.hamilton.ca/EPlansPortal/sfjsp
+
+The class uses this application to retrieve and append building permit applications and statuses to the property record.
+
+
+### Property taxes
+
+The City of Hamilton hosts an ASP application for inquiring about property taxes at:
+
+http://oldproperty.hamilton.ca/property-inquiry_noborders/default.asp
+
+The class uses this application to retrieve and append roll numbers, tax assessments, and tax levies to the property record.
+
 
 ## License
 
