@@ -1,9 +1,9 @@
 from bs4 import BeautifulSoup
 import re
 import arrow
-from logger import httpLogger
-from logger import logger
-from http_client import http_client
+from application.core.utils.logger import httpLogger, logger
+# from core.utils.logger import logger
+from application.core.utils.http_client import http_client
 import requests
 
 
@@ -16,7 +16,7 @@ import requests
     #   'city' (must be one of Hamilton, Ancaster, Dundas, Flamborough, Glanbrook, or Stoney Creek)
 class ls_hamilton_property:
     def __init__(self, address={}):
-        self.address = self.validate_address(address)
+        self.address = address
         self.location = self.get_location(self.address)
         self.taxes = self.get_taxes(self.address)
         if self.taxes:
@@ -39,67 +39,6 @@ class ls_hamilton_property:
         if self.location:
             self.building_permits = self.get_building_permits(self.address)
         else: self.building_permits = []
-
-
-    # Accepts an address object, validates the address, and appends any additionally available attributes.
-    def validate_address(self, address):
-
-        # Flesh out the short and long versions of street types and directions
-        if address.get('street_type_short') is not None:
-            if address.get('street_type_long') is None:
-                address['street_type_long'] = self.expand_address_type(address['street_type_short'])
-        if address.get('street_type_long') is not None:
-            if address.get('street_type_short') is None:
-                address['street_type_short'] = self.contract_address_type(address['street_type_long'])
-        if address.get('street_direction_short') is not None:
-            if address.get('street_direction_long') is None:
-                address['street_direction_long'] = self.expand_address_direction(address['street_direction_short'])
-        if address.get('street_direction_long') is not None:
-            if address.get('street_direction_short') is None:
-                address['street_direction_short'] = self.contract_address_direction(address['street_direction_long'])
-
-        # The URL for the City of Hamilton's ArcGIS-powered address search, hosted by Spatial Solutions Inc
-        url = "https://spatialsolutions.hamilton.ca/webgis/rest/services/Geocoders/Address_Locator/GeocodeServer/findAddressCandidates"
-        # url = "https://httpstat.us/500"
-
-        # Format the address object as a single-line string
-        addressString = address['street_number']+" "+address['street_name']+" "+address['street_type_long'] 
-        if address.get('street_direction_long') is not None:
-            addressString = addressString+" "+address['street_direction_long']
-        if address.get('city') is not None:
-            addressString = addressString+" "+address['city']
-
-        # Assemble the address string along with other required parameters into the query request
-        requestData = {'SingleLine': addressString, 'f': 'json', 'outSR': '{wkid: 4326}', 'outFields': '*', 'maxLocations': '1'}
-
-        # Check if the request returns an HTTP error
-        try:
-            response = http_client.get(url, params=requestData)
-
-        # If it does, log the HTTP error and return the address unaltered
-        except requests.exceptions.RequestException as e:
-            httpLogger.error(e)
-            return address
-
-        # If it doesn't, inspect the JSON response
-        else:
-            response = http_client.get(url, params=requestData).json()
-
-            # If the response contains results, set the validated attribute on the address to True
-            if response['candidates']:
-                address['validated'] = 'True'
-                logger.debug("Validated "+addressString)
-
-                # If the address object is missing city and neighborhood attributes, add them
-                if address.get('city') is None:
-                    address['city'] = response["candidates"][0]["attributes"]["City"]
-                if address.get('neighborhood') is None:
-                    address['neighborhood'] = response["candidates"][0]["attributes"]["Nbrhd"]
-
-            # If the response doesn't contain results, log a warning and return the address unaltered
-            else:
-                logger.warning("Could not validate "+addressString)
-            return address
 
 
     # Accepts an address object and returns long/lat in EPSG:4326 and EPSG:3857 coordinates.
@@ -302,7 +241,7 @@ class ls_hamilton_property:
         # If it doesn't, check to see if the response contains temp use data
         else:
             checkResponse = http_client.get(url, params=checkRequestData).json()
-            
+
             # If it does, return the temp use data
             if checkResponse['objectIds'] != None:
                 temp_use = http_client.get(url, params=requestData).json()['features'][0]['attributes']
@@ -326,7 +265,8 @@ class ls_hamilton_property:
 
         # Extract the raw session cookie from the http client's 'cookies' object
         cookies = http_client.get(cookieURL, verify=False).cookies.get_dict()
-        cookie = next(iter(cookies))+"="+list(cookies.values())[0]
+        cookie = "JSESSIONID="+cookies["JSESSIONID"]
+        http_client.cookies.clear()
 
         # The URL for the application's session manager 
         url = "https://eplans.hamilton.ca/EPlansPortal/sfjsp"
@@ -391,7 +331,6 @@ class ls_hamilton_property:
 
                 # Return the building permits object
                 return building_permits
-
 
     # Accepts an address object and returns a list of tax objects with roll number attributes, ready to be populated
     def get_taxes(self, address):
@@ -628,198 +567,6 @@ class ls_hamilton_property:
 
 
 # -- UTILITY FUNCTIONS --
-
-
-    # Accepts an address object with a short street type and returns the long street type
-    def expand_address_type(self, address):
-        if re.search(r'\bAVE\b', address):
-            return re.sub(r'\bAVE\b', 'AVENUE', address)
-        if re.search(r'\bAve\b', address):
-            return re.sub(r'\bAve\b', 'Avenue', address)
-        if re.search(r'\bBLVD\b', address):
-            return re.sub(r'\bBLVD\b', 'BOULEVARD', address)
-        if re.search(r'\bBlvd\b', address):
-            return re.sub(r'\bBlvd\b', 'Boulevard', address)
-        if re.search(r'\bCIR\b', address):
-            return re.sub(r'\bCIR\b', 'CIRCLE', address)
-        if re.search(r'\bCir\b', address):
-            return re.sub(r'\bCir\b', 'Circle', address)
-        if re.search(r'\bCRT\b', address):
-            return re.sub(r'\bCRT\b', 'COURT', address)
-        if re.search(r'\bCrt\b', address):
-            return re.sub(r'\bCrt\b', 'Court', address)
-        if re.search(r'\bCRES\b', address):
-            return re.sub(r'\bCRES\b', 'CRESCENT', address)
-        if re.search(r'\bCres\b', address):
-            return re.sub(r'\bCres\b', 'Crescent', address)
-        if re.search(r'\bDR\b', address):
-            return re.sub(r'\bDR\b', 'DRIVE', address)
-        if re.search(r'\bDr\b', address):
-            return re.sub(r'\bDr\b', 'Drive', address)
-        if re.search(r'\bGDN\b', address):
-            return re.sub(r'\bGDN\b', 'GARDEN', address)
-        if re.search(r'\bGdn\b', address):
-            return re.sub(r'\bGdn\b', 'Garden', address)
-        if re.search(r'\bHTS\b', address):
-            return re.sub(r'\bHTS\b', 'HEIGHTS', address)
-        if re.search(r'\bHts\b', address):
-            return re.sub(r'\bHts\b', 'Heights', address)
-        if re.search(r'\bHWY\b', address):
-            return re.sub(r'\bHWY\b', 'HIGHWAY', address)
-        if re.search(r'\bHwy\b', address):
-            return re.sub(r'\bHwy\b', 'Highway', address)
-        if re.search(r'\bPKY\b', address):
-            return re.sub(r'\bPKY\b', 'PARKWAY', address)
-        if re.search(r'\bPky\b', address):
-            return re.sub(r'\bPky\b', 'Parkway', address)
-        if re.search(r'\bPL\b', address):
-            return re.sub(r'\bPL\b', 'PLACE', address)
-        if re.search(r'\bPl\b', address):
-            return re.sub(r'\bPl\b', 'Place', address)
-        if re.search(r'\bRD\b', address):
-            return re.sub(r'\bRD\b', 'ROAD', address)
-        if re.search(r'\bRd\b', address):
-            return re.sub(r'\bRd\b', 'Road', address)
-        if re.search(r'\bSQ\b', address):
-            return re.sub(r'\bSQ\b', 'SQUARE', address)
-        if re.search(r'\bSq\b', address):
-            return re.sub(r'\bSq\b', 'Square', address)
-        if re.search(r'\bST\b', address):
-            return re.sub(r'\bST\b', 'STREET', address)
-        if re.search(r'\bSt\b', address):
-            return re.sub(r'\bSt\b', 'Street', address)
-        if re.search(r'\bTERR\b', address):
-            return re.sub(r'\bTERR\b', 'TERRACE', address)
-        if re.search(r'\bTerr\b', address):
-            return re.sub(r'\bTerr\b', 'Terrace', address)
-        if re.search(r'\bEXWY\b', address):
-            return re.sub(r'\bEXWY\b', 'EXPRESSWAY', address)
-        if re.search(r'\bExwy\b', address):
-            return re.sub(r'\bExwy\b', 'Expressway', address)
-        if re.search(r'\bVILLGE\b', address):
-            return re.sub(r'\bVILLGE\b', 'VILLAGE', address)
-        if re.search(r'\bVillge\b', address):
-            return re.sub(r'\bVillge\b', 'Village', address)
-        if re.search(r'\bPT\b', address):
-            return re.sub(r'\bPT\b', 'POINT', address)
-        if re.search(r'\bPt\b', address):
-            return re.sub(r'\bPt\b', 'Point', address)
-        if re.search(r'\bSIDERD\b', address):
-            return re.sub(r'\bSIDERD\b', 'SIDEROAD', address)
-        if re.search(r'\bSiderd\b', address):
-            return re.sub(r'\bSiderd\b', 'Sideroad', address)
-        else:
-            return address
-
-
-    # Accepts an address object with a long street type and returns the short street type
-    def contract_address_type(self, address):
-        if re.search(r'\bAVENUE\b', address):
-            return re.sub(r'\bAVENUE\b', 'AVE', address)
-        if re.search(r'\bAvenue\b', address):
-            return re.sub(r'\bAvenue\b', 'Ave', address)
-        if re.search(r'\bBOULEVARD\b', address):
-            return re.sub(r'\bBOULEVARD\b', 'BLVD', address)
-        if re.search(r'\bBoulevard\b', address):
-            return re.sub(r'\bBoulevard\b', 'Blvd', address)
-        if re.search(r'\bCIRCLE\b', address):
-            return re.sub(r'\bCIRCLE\b', 'CIR', address)
-        if re.search(r'\bCircle\b', address):
-            return re.sub(r'\bCircle\b', 'Cir', address)
-        if re.search(r'\bCOURT\b', address):
-            return re.sub(r'\bCOURT\b', 'CRT', address)
-        if re.search(r'\bCourt\b', address):
-            return re.sub(r'\bCourt\b', 'Crt', address)
-        if re.search(r'\bCRESCENT\b', address):
-            return re.sub(r'\bCRESCENT\b', 'CRES', address)
-        if re.search(r'\bCrescent\b', address):
-            return re.sub(r'\bCrescent\b', 'Cres', address)
-        if re.search(r'\bDRIVE\b', address):
-            return re.sub(r'\bDRIVE\b', 'DR', address)
-        if re.search(r'\bDrive\b', address):
-            return re.sub(r'\bDrive\b', 'Dr', address)
-        if re.search(r'\bGARDEN\b', address):
-            return re.sub(r'\bGARDEN\b', 'GDN', address)
-        if re.search(r'\bGarden\b', address):
-            return re.sub(r'\bGarden\b', 'Gdn', address)
-        if re.search(r'\bHEIGHTS\b', address):
-            return re.sub(r'\bHEIGHTS\b', 'HTS', address)
-        if re.search(r'\bHeights\b', address):
-            return re.sub(r'\bHeights\b', 'Hts', address)
-        if re.search(r'\bHIGHWAY\b', address):
-            return re.sub(r'\bHIGHWAY\b', 'HWY', address)
-        if re.search(r'\bHighway\b', address):
-            return re.sub(r'\bHighway\b', 'Hwy', address)
-        if re.search(r'\bPARKWAY\b', address):
-            return re.sub(r'\bPARKWAY\b', 'PKY', address)
-        if re.search(r'\bParkway\b', address):
-            return re.sub(r'\bParkway\b', 'Pky', address)
-        if re.search(r'\bPLACE\b', address):
-            return re.sub(r'\bPLACE\b', 'PL', address)
-        if re.search(r'\bPlace\b', address):
-            return re.sub(r'\bPlace\b', 'Pl', address)
-        if re.search(r'\bROAD\b', address):
-            return re.sub(r'\bROAD\b', 'RD', address)
-        if re.search(r'\bRoad\b', address):
-            return re.sub(r'\bRoad\b', 'Rd', address)
-        if re.search(r'\bSQUARE\b', address):
-            return re.sub(r'\bSQUARE\b', 'SQ', address)
-        if re.search(r'\bSquare\b', address):
-            return re.sub(r'\bSquare\b', 'Sq', address)
-        if re.search(r'\bSTREET\b', address):
-            return re.sub(r'\bSTREET\b', 'ST', address)
-        if re.search(r'\bStreet\b', address):
-            return re.sub(r'\bStreet\b', 'St', address)
-        if re.search(r'\bTERRACE\b', address):
-            return re.sub(r'\bTERRACE\b', 'TERR', address)
-        if re.search(r'\bTerrace\b', address):
-            return re.sub(r'\bTerrace\b', 'Terr', address)
-        if re.search(r'\bEXPRESSWAY\b', address):
-            return re.sub(r'\bEXPRESSWAY\b', 'EXWY', address)
-        if re.search(r'\bExpressway\b', address):
-            return re.sub(r'\bExpressway\b', 'Exwy', address)
-        if re.search(r'\bVILLAGE\b', address):
-            return re.sub(r'\bVILLAGE\b', 'VILLGE', address)
-        if re.search(r'\bVillage\b', address):
-            return re.sub(r'\bVillage\b', 'Villge', address)
-        if re.search(r'\bPOINT\b', address):
-            return re.sub(r'\bPOINT\b', 'PT', address)
-        if re.search(r'\bPoint\b', address):
-            return re.sub(r'\bPoint\b', 'Pt', address)
-        if re.search(r'\bSIDEROAD\b', address):
-            return re.sub(r'\bSIDEROAD\b', 'SIDERD', address)
-        if re.search(r'\bSideroad\b', address):
-            return re.sub(r'\bSideroad\b', 'Siderd', address)
-        else:
-            return address
-
-
-    # Accepts an address object with a short direction type and returns the long direction type
-    def expand_address_direction(self, address):
-        if re.search(r'\bN\b', address):
-            return re.sub(r'\bN\b', 'North', address)
-        if re.search(r'\bS\b', address):
-            return re.sub(r'\bS\b', 'South', address)
-        if re.search(r'\bE\b', address):
-            return re.sub(r'\bE\b', 'East', address)
-        if re.search(r'\bW\b', address):
-            return re.sub(r'\bW\b', 'West', address)
-        else:   
-            return address
-
-
-    # Accepts an address object with a long direction type and returns the short direction type
-    def contract_address_direction(self, address):
-        if re.search(r'\bNorth\b', address):
-            return re.sub(r'\bNorth\b', 'N', address)
-        if re.search(r'\bSouth\b', address):
-            return re.sub(r'\bSouth\b', 'S', address)
-        if re.search(r'\bEast\b', address):
-            return re.sub(r'\bEast\b', 'E', address)
-        if re.search(r'\bWest\b', address):
-            return re.sub(r'\bWest\b', 'W', address)
-        else:
-            return address
 
 
     # Makes a get request and returns the HTML response to the BeautifulSoup parser
